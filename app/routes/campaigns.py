@@ -41,6 +41,58 @@ def _get_request_id(request: Request) -> str:
     return request.state.request_id if hasattr(request.state, "request_id") else str(uuid.uuid4())
 
 
+def _extract_html_from_text(raw: str) -> str:
+    """Strip fences / leading prose and return the first complete HTML document."""
+    import json as _json
+
+    text = raw.strip()
+    for fence in ("```html", "```json", "```"):
+        if text.startswith(fence):
+            text = text[len(fence):].lstrip("\n")
+            break
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+    text = text.strip()
+    # If the model wrapped the HTML in a JSON object, unwrap it.
+    if text.startswith("{"):
+        try:
+            obj = _json.loads(text)
+            if isinstance(obj, dict):
+                for val in obj.values():
+                    if isinstance(val, str) and ("<html" in val.lower() or "<!doctype" in val.lower()):
+                        text = val  # json.loads already unescapes \\n → \n etc.
+                        break
+        except (_json.JSONDecodeError, ValueError):
+            # Strict parse failed — try JSON-string-aware regex on the email_html value.
+            html_val_match = re.search(
+                r'"email_html"\s*:\s*"((?:[^"\\]|\\.)*)',
+                text,
+                re.DOTALL,
+            )
+            if html_val_match:
+                raw_val = html_val_match.group(1)
+                if raw_val.endswith('"'):
+                    raw_val = raw_val[:-1]
+                try:
+                    text = _json.loads('"' + raw_val + '"')
+                except _json.JSONDecodeError:
+                    text = (
+                        raw_val
+                        .replace('\\"', '"')
+                        .replace('\\n', '\n')
+                        .replace('\\r', '\r')
+                        .replace('\\t', '\t')
+                        .replace('\\\\', '\\')
+                    )
+    m = re.search(r"(<!DOCTYPE\s+html[\s\S]*?</html>)", text, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m2 = re.search(r"(<html[\s\S]*?</html>)", text, re.IGNORECASE)
+    if m2:
+        return m2.group(1)
+    return text
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -94,11 +146,21 @@ def _map_to_simple_response(
             campaign_req.brand.legal_footer,
         ])) or "Standard compliance applied."
 
+        raw_html = asset.html or ""
+        logger.info(
+            "[HTML step 3/3] Mapping email %d to response — length=%d, "
+            "has_real_newlines=%s, has_literal_backslash_n=%s, first 300 chars: %s",
+            asset.email_number,
+            len(raw_html),
+            repr("\n" in raw_html),
+            repr("\\n" in raw_html),
+            repr(raw_html[:300]),
+        )
         emails.append(
             SimpleEmail(
                 id=f"email-{asset.email_number}",
                 subject=asset.subject_lines[0] if asset.subject_lines else asset.email_name,
-                html_content=asset.html or "",
+                html_content=raw_html,
                 summary=SimpleSummary(
                     target_group=campaign_req.objective.target_audience,
                     regional_adaptation=(
@@ -228,7 +290,7 @@ async def edit_email(
                 instructions=payload.instructions,
             ),
             system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
-            json_schema=None,  # raw HTML response
+            json_schema=prompting.HTML_OUTPUT_SCHEMA,
             temperature=0.3,
             max_output_tokens=8192,
         )
@@ -236,17 +298,14 @@ async def edit_email(
         logger.exception("Edit email failed", extra={"request_id": request_id})
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    # Extract HTML robustly — Gemini sometimes prepends prose before the fence
-    html = result.get("text", "").strip()
-    match = re.search(r"(<!DOCTYPE\s+html[\s\S]*</html>)", html, re.IGNORECASE)
-    if match:
-        html = match.group(1).strip()
-    else:
-        for fence in ("```html", "```"):
-            if html.startswith(fence):
-                html = html[len(fence):].strip()
-        if html.endswith("```"):
-            html = html[:-3].strip()
+    edit_raw_text = result.get("text", "")
+    html = (result.get("parsed") or {}).get("email_html") or _extract_html_from_text(edit_raw_text)
+    logger.info(
+        "[edit-email] Resolved html — length=%d, source=%s, first 120 chars: %s",
+        len(html),
+        "parsed" if (result.get("parsed") or {}).get("email_html") else "fallback_extract",
+        repr(html[:120]),
+    )
 
     updated_email = SimpleEmail(
         id=payload.email_id,
