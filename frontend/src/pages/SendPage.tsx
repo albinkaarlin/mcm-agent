@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Mail, Plus, Send, Trash2, Users, CheckCircle2, Loader2, List, ChevronDown } from "lucide-react";
+import { Mail, Plus, Users, CheckCircle2, Loader2, List, ChevronDown, Settings2 } from "lucide-react";
+import ConfigureMailingDialog from "@/components/ConfigureMailingDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ export default function SendPage() {
   const { lists, addList, removeList } = useMailListStore();
   const [isSending, setIsSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [showCreateList, setShowCreateList] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [newListEmails, setNewListEmails] = useState("");
@@ -94,7 +96,7 @@ export default function SendPage() {
     0
   );
 
-  const handleSend = async () => {
+  const handleSend = async (config: { fromEmail: string; replyTo: string; plainTexts: Record<string, string> }) => {
     const assignments = Object.entries(emailAssignments)
       .filter(([_, recipients]) => recipients.length > 0)
       .map(([emailId, recipients]) => ({ emailId, recipients }));
@@ -110,9 +112,11 @@ export default function SendPage() {
 
     setIsSending(true);
     try {
+      // TODO: pass config (fromEmail, replyTo, plainTexts) to your real API
       const result = await sendEmails(assignments);
       if (result.success) {
         setSent(true);
+        setShowConfigDialog(false);
         toast({ title: "Campaign sent!", description: result.message });
       }
     } catch {
@@ -174,12 +178,12 @@ export default function SendPage() {
           Send Your <span className="gradient-text">Campaign</span>
         </h1>
         <p className="text-sm text-muted-foreground">
-          Assign recipients to each email and specify sending details of your campaign.
+          Assign recipients to each email and send your campaign.
         </p>
       </motion.div>
 
       <div className="flex justify-end">
-        <Button className="text-xs h-9 bg-red-500 text-white hover:bg-red-600" onClick={() => setShowCreateList(true)}>
+        <Button variant="outline" className="text-xs h-9" onClick={() => setShowCreateList(true)}>
           <Plus className="h-3.5 w-3.5" />
           Create Mail List
         </Button>
@@ -193,6 +197,9 @@ export default function SendPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.08, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           >
+          {generatedEmails.length > 1 && (
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Email {index + 1}</p>
+            )}
             <Card className="border-border">
               <CardHeader className="pb-3 px-5 pt-5">
                 <div className="flex items-center gap-3">
@@ -294,7 +301,7 @@ export default function SendPage() {
         ))}
       </div>
 
-      {/* Summary & Send */}
+      {/* Summary & Configure */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -312,25 +319,26 @@ export default function SendPage() {
               <Button
                 size="lg"
                 className="h-11 px-8 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-                onClick={handleSend}
-                disabled={isSending || totalRecipients === 0}
+                onClick={() => setShowConfigDialog(true)}
+                disabled={totalRecipients === 0}
               >
-                {isSending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4" />
-                    Send Campaign
-                  </>
-                )}
+                <Settings2 className="h-4 w-4" />
+                Configure Mailing
               </Button>
             </div>
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Configure Mailing Dialog */}
+      <ConfigureMailingDialog
+        open={showConfigDialog}
+        onOpenChange={setShowConfigDialog}
+        emails={generatedEmails}
+        emailAssignments={emailAssignments}
+        onSend={handleSend}
+        isSending={isSending}
+      />
 
       {/* Create Mail List Dialog */}
       <Dialog open={showCreateList} onOpenChange={setShowCreateList}>
