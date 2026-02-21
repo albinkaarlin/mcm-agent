@@ -15,7 +15,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Nunito', 'sans-serif'],
-        display: ['Nunito', 'sans-serif'],
+        display: ['Casad', 'Nunito', 'sans-serif'],
         mono: ['Fragment Mono', 'monospace'],
       },
       colors: {
@@ -84,8 +84,8 @@ export default {
           to: { height: "0" },
         },
         "pulse-glow": {
-          "0%, 100%": { boxShadow: "0 0 20px -5px hsl(11 80% 57% / 0.2)" },
-          "50%": { boxShadow: "0 0 40px -5px hsl(11 80% 57% / 0.35)" },
+          "0%, 100%": { boxShadow: "0 0 20px -5px hsl(13 93% 55% / 0.2)" },
+          "50%": { boxShadow: "0 0 40px -5px hsl(13 93% 55% / 0.35)" },
         },
         "float": {
           "0%, 100%": { transform: "translateY(0px)" },

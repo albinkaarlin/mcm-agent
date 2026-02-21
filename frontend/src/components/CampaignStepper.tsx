@@ -20,15 +20,15 @@ export function CampaignStepper() {
                 index < currentStep
                   ? "text-primary"
                   : index === currentStep
-                  ? "text-foreground"
-                  : "text-muted-foreground"
+                  ? "text-white"
+                  : "text-white/50"
               }`}
             >
               {index + 1}.
             </span>
             <span
               className={`text-xs font-medium transition-all duration-300 ${
-                index <= currentStep ? "text-foreground" : "text-muted-foreground"
+                index <= currentStep ? "text-white" : "text-white/50"
               }`}
             >
               {step.label}
@@ -38,7 +38,7 @@ export function CampaignStepper() {
             )}
           </div>
           {index < steps.length - 1 && (
-            <span className="text-muted-foreground/40 mx-1">—</span>
+            <span className="text-white/30 mx-1">—</span>
           )}
         </div>
       ))}

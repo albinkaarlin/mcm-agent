@@ -35,10 +35,12 @@ export default function CreatePage() {
   const handleGenerate = async (enrichedPrompt?: string, forceProceed = false) => {
     const activePrompt = enrichedPrompt ?? prompt;
     if (!activePrompt.trim()) return;
-    setIsGenerating(true);
     setError(null);
+    setIsGenerating(true);
+    console.log("Generating campaign with prompt:", activePrompt);
     try {
       const response = await generateCampaign({ prompt: activePrompt, force_proceed: forceProceed });
+      console.log("Campaign response:", response);
 
       if (response.status === "needs_clarification" && response.questions?.length) {
         setClarificationQuestions(response.questions);
@@ -50,8 +52,9 @@ export default function CreatePage() {
       setStep(1);
       navigate("/review");
     } catch (err) {
-      console.error("Failed to generate campaign:", err);
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      const errorMsg = err instanceof Error ? err.message : "Failed to generate campaign";
+      console.error("Campaign generation error:", err);
+      setError(errorMsg);
     } finally {
       setIsGenerating(false);
     }
@@ -157,14 +160,14 @@ export default function CreatePage() {
           className="inline-flex items-center gap-2 rounded border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground"
         >
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          AI-Powered Multi Channel Marketing 
+          AI-Powered Campaign Creation
         </motion.div>
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-[3.5rem] text-foreground leading-[1.1]">
           Create your next{" "}
           <span className="gradient-text">marketing campaign</span>
         </h1>
         <p className="mx-auto max-w-lg text-base text-muted-foreground leading-relaxed">
-          Describe your campaign goals, target audience, and preferences. <b>Mark</b> will generate
+          Describe your campaign goals, target audience, and preferences. Mark will generate
           personalized email campaigns tailored to your needs.
         </p>
       </motion.div>
@@ -175,10 +178,10 @@ export default function CreatePage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
       >
-        <Card className="border border-border shadow-sm hover:shadow-md transition-shadow">
+        <Card className="border border-border shadow-sm">
           <CardContent className="p-5 space-y-4">
             <Textarea
-              placeholder="Describe your campaign. 'Create a 3-email spring sale campaign targeting EU customers aged 25-40. Include GDPR compliance, use a professional but friendly tone, and promote our new collection with a 30% discount code.'"
+              placeholder="Describe your campaign... e.g. 'Create a 3-email spring sale campaign targeting EU customers aged 25-40. Include GDPR compliance, use a professional but friendly tone, and promote our new collection with a 30% discount code.'"
               className="min-h-[160px] resize-none border-0 bg-transparent p-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -220,15 +223,15 @@ export default function CreatePage() {
         </Button>
       </motion.div>
 
-        {error && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive text-center"
-          >
-            {error}
-          </motion.div>
-        )}
-      </div>
-    );
+      {error && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive text-center"
+        >
+          {error}
+        </motion.div>
+      )}
+    </div>
+  );
 }

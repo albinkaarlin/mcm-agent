@@ -240,7 +240,7 @@ export default function SendPage() {
                     <Mail className="h-3.5 w-3.5 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm font-semibold">{email.subject}</CardTitle>
+                    <CardTitle className="text-sm font-semibold font-sans">{email.subject}</CardTitle>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">
                       {email.summary.targetGroup}
                     </p>

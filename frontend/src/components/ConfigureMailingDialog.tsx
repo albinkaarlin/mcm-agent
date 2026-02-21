@@ -57,7 +57,7 @@ export default function ConfigureMailingDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 font-semibold">
+          <DialogTitle className="flex items-center gap-2 font-semibold font-sans">
             <Settings2 className="h-4 w-4 text-primary" />
             Configure Mailing
           </DialogTitle>
@@ -70,7 +70,7 @@ export default function ConfigureMailingDialog({
           <div className="space-y-5 pb-2">
             {/* Global SendGrid settings */}
             <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <h3 className="text-xs font-semibold font-sans uppercase tracking-wider text-muted-foreground">
                 Sender Settings
               </h3>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -108,7 +108,7 @@ export default function ConfigureMailingDialog({
 
             {/* Per-email config */}
             <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <h3 className="text-xs font-semibold font-sans uppercase tracking-wider text-muted-foreground">
                 Email Details ({assignedEmails.length} with recipients)
               </h3>
 
@@ -132,7 +132,7 @@ export default function ConfigureMailingDialog({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <Mail className="h-3.5 w-3.5 text-primary shrink-0" />
-                            <p className="text-sm font-semibold truncate">
+                            <p className="text-sm font-semibold font-sans truncate">
                               {email.subject}
                             </p>
                           </div>

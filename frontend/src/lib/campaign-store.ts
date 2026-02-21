@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { GeneratedEmail } from "./api";
+import type { GeneratedEmail } from "./mock-api";
 
 interface CampaignState {
   // Step tracking
