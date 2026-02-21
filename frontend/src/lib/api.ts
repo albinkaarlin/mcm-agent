@@ -101,11 +101,93 @@ export async function editEmail(
   return mapEmail(data.email);
 }
 
-export async function sendEmails(
-  emailAssignments: { emailId: string; recipients: string[] }[]
-): Promise<{ success: boolean; message: string }> {
-  // Sending is out of scope for Mark — stub kept for the Send page UI
-  await new Promise((resolve) => setTimeout(resolve, 800));
-  const total = emailAssignments.reduce((acc, a) => acc + a.recipients.length, 0);
-  return { success: true, message: `Queued ${total} emails for delivery.` };
+// ── Email send helpers ───────────────────────────────────────────────────────
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 2000);
+}
+
+async function withConcurrency<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number
+): Promise<T[]> {
+  const results: T[] = [];
+  const queue = [...tasks];
+  async function runNext(): Promise<void> {
+    if (queue.length === 0) return;
+    const task = queue.shift()!;
+    results.push(await task());
+    await runNext();
+  }
+  const workers = Array.from(
+    { length: Math.min(limit, tasks.length) },
+    () => runNext()
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+export interface SendEmailPayload {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+}
+
+export async function sendEmailOne(payload: SendEmailPayload): Promise<void> {
+  const res = await fetch("/v1/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(
+      (errBody as { detail?: string }).detail ?? `HTTP ${res.status}`
+    );
+  }
+}
+
+export interface CampaignSendTask {
+  email: GeneratedEmail;
+  recipient: string;
+  subject: string;
+}
+
+export async function sendCampaign(
+  tasks: CampaignSendTask[]
+): Promise<{ sent: number; failed: { recipient: string; error: string }[] }> {
+  const failed: { recipient: string; error: string }[] = [];
+  let sent = 0;
+
+  const jobs = tasks.map(
+    (task) => async () => {
+      try {
+        await sendEmailOne({
+          to: task.recipient,
+          subject: task.subject,
+          html: task.email.htmlContent,
+          text: stripHtml(task.email.htmlContent),
+        });
+        sent++;
+      } catch (err) {
+        failed.push({
+          recipient: task.recipient,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  await withConcurrency(jobs, 5);
+  return { sent, failed };
 }
