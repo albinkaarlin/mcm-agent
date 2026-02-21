@@ -85,7 +85,7 @@ class TestCampaignRequest:
     def test_default_design_tokens(self):
         data = _minimal_request()
         req = CampaignRequest.model_validate(data)
-        assert req.brand.design_tokens.primary_color == "#000000"
+        assert req.brand.design_tokens.primary_color == "#6366f1"
 
     def test_custom_design_tokens(self):
         data = _minimal_request()
@@ -126,7 +126,7 @@ class TestCampaignRequest:
 class TestDesignTokens:
     def test_defaults(self):
         tokens = DesignTokens()
-        assert tokens.primary_color == "#000000"
+        assert tokens.primary_color == "#6366f1"
         assert tokens.font_family_body == "Arial, sans-serif"
         assert tokens.logo_url is None
 

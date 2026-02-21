@@ -202,9 +202,9 @@ class GeminiClient:
 
 def _extract_json_fallback(text: str) -> Optional[Any]:
     """Try to salvage a JSON object from markdown-wrapped or prefixed text."""
-    # Strip ```json ... ``` fences
     import re
 
+    # Strip ```json ... ``` fences
     fence_match = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
     if fence_match:
         try:
@@ -212,13 +212,35 @@ def _extract_json_fallback(text: str) -> Optional[Any]:
         except json.JSONDecodeError:
             pass
 
-    # Find the first { … } block
+    # Find the first { … } block and try to parse it
     brace_match = re.search(r"(\{.*\})", text, re.DOTALL)
     if brace_match:
         try:
             return json.loads(brace_match.group(1))
         except json.JSONDecodeError:
             pass
+
+    # Last resort for HTML envelopes: Gemini sometimes produces almost-valid JSON
+    # where the HTML value contains characters that break strict json.loads.
+    # Extract the email_html value directly using a JSON-string-aware regex.
+    html_match = re.search(r'"email_html"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL)
+    if html_match:
+        raw_val = html_match.group(1)
+        try:
+            # Decode JSON string escapes by wrapping in quotes and parsing
+            decoded = json.loads('"' + raw_val + '"')
+            return {"email_html": decoded}
+        except json.JSONDecodeError:
+            # Manual fallback for common escapes
+            decoded = (
+                raw_val
+                .replace('\\"', '"')
+                .replace('\\n', '\n')
+                .replace('\\r', '\r')
+                .replace('\\t', '\t')
+                .replace('\\\\', '\\')
+            )
+            return {"email_html": decoded}
 
     return None
 
