@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useCampaignStore } from "@/lib/campaign-store";
 import { useMailListStore, type MailList } from "@/lib/mail-list-store";
 import { sendEmails } from "@/lib/mock-api";
+import { sendCampaign, type CampaignSendTask } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -96,12 +97,24 @@ export default function SendPage() {
     0
   );
 
-  const handleSend = async (config: { fromEmail: string; replyTo: string; plainTexts: Record<string, string> }) => {
-    const assignments = Object.entries(emailAssignments)
-      .filter(([_, recipients]) => recipients.length > 0)
-      .map(([emailId, recipients]) => ({ emailId, recipients }));
+  const handleSend = async (config: {
+    fromEmail: string;
+    replyTo: string;
+    plainTexts: Record<string, string>;
+    subjects: Record<string, string>;
+  }) => {
+    // Build one task per recipient per email
+    const tasks: CampaignSendTask[] = [];
+    for (const email of generatedEmails) {
+      const recipients = emailAssignments[email.id] ?? [];
+      if (recipients.length === 0 || !email.htmlContent) continue;
+      const subject = config.subjects[email.id]?.trim() || email.subject;
+      for (const recipient of recipients) {
+        tasks.push({ email, recipient, subject });
+      }
+    }
 
-    if (assignments.length === 0) {
+    if (tasks.length === 0) {
       toast({
         title: "No recipients",
         description: "Add at least one recipient to an email before sending.",
@@ -112,17 +125,38 @@ export default function SendPage() {
 
     setIsSending(true);
     try {
-      // TODO: pass config (fromEmail, replyTo, plainTexts) to your real API
-      const result = await sendEmails(assignments);
-      if (result.success) {
-        setSent(true);
-        setShowConfigDialog(false);
-        toast({ title: "Campaign sent!", description: result.message });
+      const { sent, failed } = await sendCampaign(tasks);
+
+      if (failed.length > 0 && sent === 0) {
+        // Total failure
+        toast({
+          title: "Send failed",
+          description: failed[0].error,
+          variant: "destructive",
+        });
+        return;
       }
-    } catch {
+
+      setSent(true);
+      setShowConfigDialog(false);
+
+      if (failed.length > 0) {
+        // Partial success
+        toast({
+          title: `Sent ${sent}, failed ${failed.length}`,
+          description: `Could not reach: ${failed.map((f) => f.recipient).join(", ")}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Campaign sent!",
+          description: `${sent} email${sent !== 1 ? "s" : ""} delivered successfully.`,
+        });
+      }
+    } catch (err) {
       toast({
         title: "Send failed",
-        description: "Something went wrong. Please try again.",
+        description: err instanceof Error ? err.message : "Something went wrong. Please try again.",
         variant: "destructive",
       });
     } finally {

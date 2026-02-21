@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Upload, X, FileText, Image, Loader2, ArrowRight } from "lucide-react";
+import { Sparkles, Loader2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,9 +13,6 @@ export default function CreatePage() {
   const {
     prompt,
     setPrompt,
-    uploadedFiles,
-    addFiles,
-    removeFile,
     setGeneratedEmails,
     setStep,
     isGenerating,
@@ -40,9 +37,32 @@ export default function CreatePage() {
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
+  const [clarificationQuestions, setClarificationQuestions] = useState<ClarificationQuestion[]>([]);
+  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const buildEnrichedPrompt = () => {
+    const answersText = clarificationQuestions
+      .map((q, i) => `Q: ${q.question}\nA: ${clarificationAnswers[i] ?? "(no answer provided)"}`)
+      .join("\n\n");
+    return answersText
+      ? `${prompt}\n\nAdditional context from clarification:\n${answersText}`
+      : prompt;
+  };
+
+  const handleGenerate = async (enrichedPrompt?: string, forceProceed = false) => {
+    const activePrompt = enrichedPrompt ?? prompt;
+    if (!activePrompt.trim()) return;
     setIsGenerating(true);
     try {
-      const response = await generateCampaign({ prompt, files: uploadedFiles });
+      const response = await generateCampaign({ prompt: activePrompt, force_proceed: forceProceed });
+
+      if (response.status === "needs_clarification" && response.questions?.length) {
+        setClarificationQuestions(response.questions);
+        setClarificationAnswers({});
+        return;
+      }
+
       setGeneratedEmails(response.emails);
       setStep(1);
       navigate("/review");
@@ -110,68 +130,11 @@ export default function CreatePage() {
         </Card>
       </motion.div>
 
-      {/* File Upload */}
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
-      >
-        <div
-          className={`relative rounded-lg border-2 border-dashed p-8 text-center transition-all ${
-            dragActive
-              ? "border-primary bg-accent"
-              : "border-border hover:border-primary/40 hover:bg-muted/50"
-          }`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
-        >
-          <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
-          <p className="mt-3 text-sm text-foreground">
-            Drop company assets here or{" "}
-            <label className="cursor-pointer text-primary hover:underline font-medium">
-              browse files
-              <input
-                type="file"
-                className="hidden"
-                multiple
-                onChange={handleFileInput}
-                accept=".pdf,.png,.jpg,.jpeg,.svg,.txt,.doc,.docx"
-              />
-            </label>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Logos, brand guidelines, company policies, legal docs
-          </p>
-        </div>
-
-        {/* Uploaded files list */}
-        {uploadedFiles.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {uploadedFiles.map((file, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-2 rounded border border-border bg-card px-3 py-1.5 text-xs"
-              >
-                {getFileIcon(file)}
-                <span className="max-w-[150px] truncate">{file.name}</span>
-                <button onClick={() => removeFile(index)} className="text-muted-foreground hover:text-foreground transition-colors">
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </motion.div>
-
       {/* Generate Button */}
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.6, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
         className="flex justify-center"
       >
         <Button

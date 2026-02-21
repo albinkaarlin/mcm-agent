@@ -9,9 +9,6 @@ interface CampaignState {
   // Create page
   prompt: string;
   setPrompt: (prompt: string) => void;
-  uploadedFiles: File[];
-  addFiles: (files: File[]) => void;
-  removeFile: (index: number) => void;
 
   // Review page
   generatedEmails: GeneratedEmail[];
@@ -36,12 +33,6 @@ export const useCampaignStore = create<CampaignState>((set) => ({
 
   prompt: "",
   setPrompt: (prompt) => set({ prompt }),
-  uploadedFiles: [],
-  addFiles: (files) => set((state) => ({ uploadedFiles: [...state.uploadedFiles, ...files] })),
-  removeFile: (index) =>
-    set((state) => ({
-      uploadedFiles: state.uploadedFiles.filter((_, i) => i !== index),
-    })),
 
   generatedEmails: [],
   setGeneratedEmails: (emails) => set({ generatedEmails: emails }),
@@ -65,7 +56,6 @@ export const useCampaignStore = create<CampaignState>((set) => ({
     set({
       currentStep: 0,
       prompt: "",
-      uploadedFiles: [],
       generatedEmails: [],
       emailAssignments: {},
       isGenerating: false,
