@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCampaignStore } from "@/lib/campaign-store";
-import { generateCampaign } from "@/lib/api";
+import { generateCampaign, type ClarificationQuestion } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 
 export default function CreatePage() {
@@ -35,9 +35,12 @@ export default function CreatePage() {
   const handleGenerate = async (enrichedPrompt?: string, forceProceed = false) => {
     const activePrompt = enrichedPrompt ?? prompt;
     if (!activePrompt.trim()) return;
+    setError(null);
     setIsGenerating(true);
+    console.log("Generating campaign with prompt:", activePrompt);
     try {
       const response = await generateCampaign({ prompt: activePrompt, force_proceed: forceProceed });
+      console.log("Campaign response:", response);
 
       if (response.status === "needs_clarification" && response.questions?.length) {
         setClarificationQuestions(response.questions);
@@ -48,8 +51,10 @@ export default function CreatePage() {
       setGeneratedEmails(response.emails);
       setStep(1);
       navigate("/review");
-    } catch (error) {
-      console.error("Failed to generate campaign:", error);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to generate campaign";
+      console.error("Campaign generation error:", err);
+      setError(errorMsg);
     } finally {
       setIsGenerating(false);
     }
@@ -201,7 +206,7 @@ export default function CreatePage() {
         <Button
           size="lg"
           className="h-11 px-8 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
-          onClick={handleGenerate}
+          onClick={() => handleGenerate()}
           disabled={!prompt.trim() || isGenerating}
         >
           {isGenerating ? (
@@ -217,6 +222,16 @@ export default function CreatePage() {
           )}
         </Button>
       </motion.div>
+
+      {error && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive text-center"
+        >
+          {error}
+        </motion.div>
+      )}
     </div>
   );
 }
