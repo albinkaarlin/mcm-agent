@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useCampaignStore } from "@/lib/campaign-store";
 import { useMailListStore, type MailList } from "@/lib/mail-list-store";
-import { sendEmails } from "@/lib/mock-api";
+import { sendEmails } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import {

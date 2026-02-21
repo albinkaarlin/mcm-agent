@@ -301,3 +301,64 @@ class HealthResponse(BaseModel):
 class ReadinessResponse(BaseModel):
     ready: bool
     checks: dict[str, Any]
+
+
+# ── Prompt-based (frontend) API ───────────────────────────────────────────────
+
+
+class PromptRequest(BaseModel):
+    """Single free-form prompt from the frontend textarea."""
+
+    prompt: str = Field(
+        ...,
+        min_length=10,
+        description="Free-form campaign description from the user.",
+        examples=["Create a 3-email spring sale for EU customers, 30% off, GDPR compliant."],
+    )
+
+
+class SimpleSummary(BaseModel):
+    target_group: str = Field(default="")
+    regional_adaptation: str = Field(default="")
+    tone_decision: str = Field(default="")
+    legal_considerations: str = Field(default="")
+
+
+class SimpleEmail(BaseModel):
+    """Frontend-shaped email — maps 1:1 to GeneratedEmail in mock-api.ts."""
+
+    id: str
+    subject: str
+    html_content: str
+    summary: SimpleSummary
+
+
+class SimpleClarificationQuestion(BaseModel):
+    field: str
+    question: str
+
+
+class SimpleCampaignResponse(BaseModel):
+    """Response returned to the frontend for generate-from-prompt."""
+
+    id: str
+    status: str  # "completed" | "needs_clarification"
+    questions: list[SimpleClarificationQuestion] = Field(default_factory=list)
+    emails: list[SimpleEmail] = Field(default_factory=list)
+
+
+class EmailEditRequest(BaseModel):
+    """Request to regenerate a single email with new instructions."""
+
+    email_id: str = Field(..., description="ID of the email being edited.")
+    current_html: str = Field(..., description="Current HTML of the email.")
+    subject: str = Field(default="", description="Current subject line for context.")
+    instructions: str = Field(
+        ...,
+        min_length=5,
+        description="User instructions, e.g. 'Make it more formal and add a discount code'.",
+    )
+
+
+class EmailEditResponse(BaseModel):
+    email: SimpleEmail
