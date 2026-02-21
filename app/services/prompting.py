@@ -344,6 +344,109 @@ Return ONLY valid JSON:
 
 # ── Phase 5 – HTML Production ─────────────────────────────────────────────────
 
+HTML_OUTPUT_SCHEMA: dict = {
+    "type": "object",
+    "required": ["email_html"],
+    "properties": {
+        "email_html": {
+            "type": "string",
+            "description": "The complete, production-ready HTML email document.",
+        }
+    },
+}
+
+_EMAIL_SKELETON_GUIDE = """\
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COLOUR SYSTEM — derive every colour from ONE brand hue
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Pick a single primary hue (the brand colour). Then construct:
+  • PRIMARY       — the full-saturation brand colour (header band bg, CTA button bg)
+  • PRIMARY_DARK  — PRIMARY darkened ~15% (hover / shadow hints, footer link)
+  • PRIMARY_TINT  — PRIMARY with ~90% white mixed in (hero section bg, CTA band bg)
+  • PRIMARY_TEXT  — dark neutral for reading (#1a1a1a or very dark shade of PRIMARY)
+  • SURFACE       — #ffffff (body section bg)
+  • SUBTLE        — #f5f5f5 or a near-white tint (footer bg)
+Do NOT introduce extra hues. All section backgrounds, text, and accents must be
+tints or shades of this one palette. This creates a cohesive, on-brand look.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STRUCTURAL SKELETON — follow this exact section order
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1. <!DOCTYPE html> + <html> + <head> with viewport meta + <style> block
+  2. Outer wrapper <table> width="100%", background-color: PRIMARY_TINT (the page canvas).
+  3. Inner card <table> width="600", centered, background-color: #ffffff,
+     border-radius:16px, overflow:hidden — this is the card the reader sees.
+     Wrap it in a <td> with padding:24px on desktop so the card floats on the canvas.
+  4. PREHEADER ROW (inside inner card): hidden preview-text span:
+       <span style="display:none;font-size:1px;color:#ffffff;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">PREVIEW_TEXT_HERE &zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</span>
+  5. HEADER BAND: <td> background-color: PRIMARY, border-radius:16px 16px 0 0 (top corners only).
+     Contains brand name in white bold text (28px) or logo. Padding: 36px 40px 28px.
+  6. HERO SECTION: <td> background-color: PRIMARY_TINT, padding: 32px 40px.
+     h1-style headline in PRIMARY_DARK (28–32px bold), then one supporting sentence in
+     PRIMARY_TEXT (16px). No border-radius needed here — it sits between header and body.
+  7. BODY SECTION: <td> background-color: #ffffff, padding: 32px 40px.
+     Body copy in PRIMARY_TEXT (#1a1a1a or equivalent), 16px, line-height:1.7.
+     Break into short paragraphs with margin-bottom:16px each.
+  8. CTA BAND: <td> background-color: #ffffff (SURFACE), padding: 28px 40px, text-align:center.
+     Holds the bulletproof button — use EXACT pattern below.
+  9. FOOTER BAND: <td> background-color: SUBTLE (#f5f5f5), border-radius: 0 0 16px 16px
+     (bottom corners only). 13px text in #888888. Padding: 24px 40px.
+     Contains legal footer and unsubscribe link.
+  10. Close all tables and </html>.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXACT BULLETPROOF CTA BUTTON — rounded box shape, use this verbatim:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+  <tbody>
+    <tr>
+      <td align="center" style="border-radius:8px;mso-padding-alt:0;" bgcolor="YOUR_PRIMARY">
+        <!--[if mso]>
+        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
+          href="https://example.com" style="height:52px;v-text-anchor:middle;width:240px;" arcsize="10%"
+          strokecolor="YOUR_PRIMARY" fillcolor="YOUR_PRIMARY">
+          <w:anchorlock/>
+          <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">YOUR_CTA_LABEL</center>
+        </v:roundrect>
+        <![endif]-->
+        <!--[if !mso]><!-->
+        <a href="https://example.com" target="_blank"
+          style="background-color:YOUR_PRIMARY;border-radius:8px;color:#ffffff;display:inline-block;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;line-height:52px;mso-hide:all;padding:0 36px;text-decoration:none;text-align:center;-webkit-text-size-adjust:none;letter-spacing:0.3px;">YOUR_CTA_LABEL</a>
+        <!--<![endif]-->
+      </td>
+    </tr>
+  </tbody>
+</table>
+(Replace YOUR_PRIMARY with the exact 6-digit hex of the primary brand colour.
+ Replace YOUR_CTA_LABEL with the CTA text. Outlook renders square corners — acceptable.)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANDATORY TECHNICAL RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• ALL CSS must be inlined on every element — <style> block in <head> for @media only.
+• Table-based layout throughout. Do NOT use <div> for layout blocks.
+• Every table: border="0" cellpadding="0" cellspacing="0" role="presentation"
+  and style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;"
+• Every <td>: explicit font-family, font-size, color, vertical-align.
+• Full 6-digit hex everywhere (#ffffff not #fff).
+• Inner card table max-width 600px. Outer wrapper width="100%".
+• Mobile @media (max-width:600px): .email-container { width:100% !important; },
+  remove card padding, adjust font sizes.
+• No CSS Grid, Flexbox, float, or position:absolute.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DESIGN QUALITY RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Single cohesive palette — all colours tints/shades of one hue. No random accent colours.
+• Card layout: the inner 600px container appears as a rounded card floating on a tinted canvas.
+• Header top corners rounded (16px), footer bottom corners rounded (16px).
+• CTA button is a rounded box (border-radius:8px). It is the email's only bold colour call-to-action.
+• WCAG AA contrast on all text/bg combinations.
+• Body paragraphs max 3–4 sentences, separated by 16px margin.
+• Footer recedes visually — smaller, lighter, no competing colours.
+• Aesthetic: warm, modern, human — like a beautifully designed SaaS product email.
+"""
+
 
 def build_production_prompt(
     req: CampaignRequest,
@@ -355,84 +458,105 @@ def build_production_prompt(
     body = email_asset.get('body_text', '')
     cta = email_asset.get('ctas', ['Shop Now'])[0]
     footer = req.brand.legal_footer or ''
-    logo = f"- Logo URL: {dt.logo_url}" if dt.logo_url else ""
+    logo_line = (
+        f"Logo image URL (embed at top of header band): {dt.logo_url}"
+        if dt.logo_url
+        else "No logo — render the brand name as styled bold text in the header band instead."
+    )
 
     if dt.auto_design:
         return f"""\
-Generate a stunning, production-ready, responsive HTML email. You have full creative freedom \
-over the visual design — make it look modern, polished, and professional. Think of the quality \
-you'd expect from a top-tier agency or SaaS product like Notion, Linear, or Stripe.
+You are an expert HTML email developer. Produce a single, complete, production-ready HTML \
+email that looks like it was crafted by a world-class design team (think: Stripe, Linear, \
+or a top direct-to-consumer brand). It must render correctly in Gmail, Apple Mail, and \
+Outlook 2016+.
 
-BRAND CONTEXT:
-- Brand: {req.brand.brand_name}
-- Offer / theme: {email_asset.get('email_name', '')}
-{logo}
+═══════════════════════════════════════════════
+CONTENT TO ENCODE
+═══════════════════════════════════════════════
+Brand name:    {req.brand.brand_name}
+Campaign:      {email_asset.get('email_name', '')}
+{logo_line}
 
-EMAIL COPY:
-- Subject: {subject}
-- Preview text: {preview}
-- Body: {body}
-- CTA button label: {cta}
+Subject line:  {subject}
+Preview text:  {preview}
+Body copy:
+{body}
 
-DESIGN GUIDANCE (you decide the exact values, but follow these principles):
-- Choose a cohesive, modern colour palette that fits the brand name and offer theme.
-- Use a bold, eye-catching hero section with a gradient or strong background colour.
-- Use ample white space and clear visual hierarchy.
-- CTA button should be large, colourful, and prominent.
-- Use subtle section dividers and a clean footer.
-- Typography: clear heading hierarchy, readable body size (15–16px), good line height.
-- Make it feel warm and human, not corporate and bland.
-{f"- Logo: embed the logo image at the top using this URL: {dt.logo_url}" if dt.logo_url else "- No logo — use the brand name as styled text in the header instead."}
+CTA button label: {cta}
+Legal footer text: {footer}
 
-HTML REQUIREMENTS:
-1. Use table-based layout for maximum email client compatibility.
-2. Inline ALL CSS — no <style> blocks.
-3. Include a responsive meta viewport tag.
-4. All images must have descriptive alt text.
-5. CTA button must be bulletproof (VML fallback for Outlook).
-6. Include web-safe font fallbacks.
-7. Legal footer at the very bottom: {footer}
+═══════════════════════════════════════════════
+COLOUR PALETTE — pick ONE primary hue, then derive everything from it:
+═══════════════════════════════════════════════
+- Choose a single PRIMARY hue that suits "{req.brand.brand_name}" and the campaign theme.
+- PRIMARY: full-saturation version → header band background, CTA button.
+- PRIMARY_DARK: ~15% darker → h1 headline colour in the hero section.
+- PRIMARY_TINT: PRIMARY mixed ~90% white → hero section bg, CTA band bg, outer canvas bg.
+- Body text: #1a1a1a on #ffffff. Footer bg: #f5f5f5, footer text: #888888.
+- Do NOT introduce any colour from a different hue family. Monochromatic palette only.
 
-Output the raw HTML only. No markdown fences, no JSON, no explanation.
-The very first character must be < and the very last character must be >.
-Start with <!DOCTYPE html> and end with </html>.
+═══════════════════════════════════════════════
+STRUCTURE & CODE PATTERNS
+═══════════════════════════════════════════════
+{_EMAIL_SKELETON_GUIDE}
+
+Return a JSON object with a single key "email_html" whose value is the complete HTML string.
+Start the HTML with <!DOCTYPE html> and end with </html>.
 """
 
-    # ── Explicit brand tokens mode ────────────────────────────────────────────
+    # ── Explicit brand tokens mode ──────────────────────────────────────────
+    font_stack_heading = f"'{dt.font_family_heading}',Arial,Helvetica,sans-serif"
+    font_stack_body = f"'{dt.font_family_body}',Arial,Helvetica,sans-serif"
+    accent = dt.accent_color or dt.primary_color
+
     return f"""\
-Generate a production-ready, responsive HTML email for the copy below.
+You are an expert HTML email developer. Produce a single, complete, production-ready HTML \
+email following the brand tokens below exactly. It must render correctly in Gmail, Apple \
+Mail, and Outlook 2016+.
 
-DESIGN TOKENS:
-- Primary colour: {dt.primary_color}
-- Secondary colour: {dt.secondary_color}
-- Accent colour: {dt.accent_color or 'none'}
-- Heading font: {dt.font_family_heading}
-- Body font: {dt.font_family_body}
-- Base font size: {dt.font_size_base}
-- Line height: {dt.line_height}
-- Spacing unit: {dt.spacing_unit}
-- Border radius: {dt.border_radius}
-{logo}
+═══════════════════════════════════════════════
+BRAND DESIGN TOKENS  (apply these exactly — do not invent other values)
+═══════════════════════════════════════════════
+Primary colour (header band bg, links):   {dt.primary_color}
+Secondary colour (hero section bg):       {dt.secondary_color}
+Accent colour (CTA button bg):            {accent}
+Heading font stack:                       {font_stack_heading}
+Body font stack:                          {font_stack_body}
+Base body font size:                      {dt.font_size_base}
+Line height:                              {dt.line_height}
+Spacing unit (base padding):              {dt.spacing_unit}
+Border radius (buttons, cards):           {dt.border_radius}
+{logo_line}
 
-EMAIL COPY:
-- Subject (use first option): {subject}
-- Preview text: {preview}
-- Body text: {body}
-- Primary CTA label: {cta}
+═══════════════════════════════════════════════
+CONTENT TO ENCODE
+═══════════════════════════════════════════════
+Brand name:    {req.brand.brand_name}
+Subject line:  {subject}
+Preview text:  {preview}
+Body copy:
+{body}
 
-HTML REQUIREMENTS:
-1. Use table-based layout for maximum email client compatibility.
-2. Inline all CSS.
-3. Include a responsive meta viewport tag.
-4. Add alt text to all images (use descriptive placeholders if no images).
-5. CTA button must be bulletproof (VML fallback for Outlook).
-6. Include web-safe font fallbacks.
-7. Honour the design tokens above strictly.
-8. Include the legal footer: {footer}
+CTA button label: {cta}
+Legal footer text: {footer}
 
-Output the raw HTML only. No markdown fences, no JSON, no explanation.
-The very first character must be < and the very last character must be >.
-Start with <!DOCTYPE html> and end with </html>.
+═══════════════════════════════════════════════
+STRUCTURE & CODE PATTERNS
+═══════════════════════════════════════════════
+{_EMAIL_SKELETON_GUIDE}
+
+Apply the brand tokens and derive the full palette:
+- PRIMARY = {dt.primary_color} → header band bg, CTA button bg
+- PRIMARY_DARK = {dt.primary_color} darkened ~15% → h1 headline colour in hero
+- PRIMARY_TINT = {dt.secondary_color} → hero section bg, CTA band bg, outer canvas bg
+- CTA button bg = {accent} (rounded box shape, border-radius:8px)
+- All body text: font-size = {dt.font_size_base}; line-height = {dt.line_height}; color = #1a1a1a
+- Inner card border-radius: 16px (header top corners, footer bottom corners)
+- Section padding based on spacing unit {dt.spacing_unit} (use multiples as needed)
+
+Return a JSON object with a single key "email_html" whose value is the complete HTML string.
+Start the HTML with <!DOCTYPE html> and end with </html>.
 """
 
 
@@ -658,7 +782,6 @@ USER INSTRUCTIONS:
 CURRENT HTML:
 {current_html}
 
-Output the raw HTML only. No markdown fences, no JSON, no explanation.
-The very first character must be < and the very last character must be >.
-Start with <!DOCTYPE html> and end with </html>.
+Return a JSON object with a single key "email_html" whose value is the complete updated HTML string.
+Start the HTML with <!DOCTYPE html> and end with </html>.
 """
