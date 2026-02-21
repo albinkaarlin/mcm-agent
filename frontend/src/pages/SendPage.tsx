@@ -174,12 +174,12 @@ export default function SendPage() {
           Send Your <span className="gradient-text">Campaign</span>
         </h1>
         <p className="text-sm text-muted-foreground">
-          Assign recipients to each email and send your campaign.
+          Assign recipients to each email and specify sending details of your campaign.
         </p>
       </motion.div>
 
       <div className="flex justify-end">
-        <Button variant="outline" className="text-xs h-9" onClick={() => setShowCreateList(true)}>
+        <Button className="text-xs h-9 bg-red-500 text-white hover:bg-red-600" onClick={() => setShowCreateList(true)}>
           <Plus className="h-3.5 w-3.5" />
           Create Mail List
         </Button>
