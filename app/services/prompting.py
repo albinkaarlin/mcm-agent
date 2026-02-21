@@ -362,6 +362,54 @@ def build_production_prompt(
     email_asset: dict[str, Any],
 ) -> str:
     dt = req.brand.design_tokens
+    subject = email_asset.get('subject_lines', [''])[0]
+    preview = email_asset.get('preview_text_options', [''])[0]
+    body = email_asset.get('body_text', '')
+    cta = email_asset.get('ctas', ['Shop Now'])[0]
+    footer = req.brand.legal_footer or ''
+    logo = f"- Logo URL: {dt.logo_url}" if dt.logo_url else ""
+
+    if dt.auto_design:
+        return f"""\
+Generate a stunning, production-ready, responsive HTML email. You have full creative freedom \
+over the visual design — make it look modern, polished, and professional. Think of the quality \
+you'd expect from a top-tier agency or SaaS product like Notion, Linear, or Stripe.
+
+BRAND CONTEXT:
+- Brand: {req.brand.brand_name}
+- Offer / theme: {email_asset.get('email_name', '')}
+{logo}
+
+EMAIL COPY:
+- Subject: {subject}
+- Preview text: {preview}
+- Body: {body}
+- CTA button label: {cta}
+
+DESIGN GUIDANCE (you decide the exact values, but follow these principles):
+- Choose a cohesive, modern colour palette that fits the brand name and offer theme.
+- Use a bold, eye-catching hero section with a gradient or strong background colour.
+- Use ample white space and clear visual hierarchy.
+- CTA button should be large, colourful, and prominent.
+- Use subtle section dividers and a clean footer.
+- Typography: clear heading hierarchy, readable body size (15–16px), good line height.
+- Make it feel warm and human, not corporate and bland.
+{f"- Logo: embed the logo image at the top using this URL: {dt.logo_url}" if dt.logo_url else "- No logo — use the brand name as styled text in the header instead."}
+
+HTML REQUIREMENTS:
+1. Use table-based layout for maximum email client compatibility.
+2. Inline ALL CSS — no <style> blocks.
+3. Include a responsive meta viewport tag.
+4. All images must have descriptive alt text.
+5. CTA button must be bulletproof (VML fallback for Outlook).
+6. Include web-safe font fallbacks.
+7. Legal footer at the very bottom: {footer}
+
+Return ONLY the raw HTML. Do not include any explanation, markdown, or code fences.
+Start your response with <!DOCTYPE html> and end with </html>.
+"""
+
+    # ── Explicit brand tokens mode ────────────────────────────────────────────
     return f"""\
 Generate a production-ready, responsive HTML email for the copy below.
 
@@ -375,13 +423,13 @@ DESIGN TOKENS:
 - Line height: {dt.line_height}
 - Spacing unit: {dt.spacing_unit}
 - Border radius: {dt.border_radius}
-{f"- Logo URL: {dt.logo_url}" if dt.logo_url else ""}
+{logo}
 
 EMAIL COPY:
-- Subject (use first option): {email_asset.get('subject_lines', [''])[0]}
-- Preview text: {email_asset.get('preview_text_options', [''])[0]}
-- Body text: {email_asset.get('body_text', '')}
-- Primary CTA label: {email_asset.get('ctas', ['Shop Now'])[0]}
+- Subject (use first option): {subject}
+- Preview text: {preview}
+- Body text: {body}
+- Primary CTA label: {cta}
 
 HTML REQUIREMENTS:
 1. Use table-based layout for maximum email client compatibility.
@@ -391,7 +439,7 @@ HTML REQUIREMENTS:
 5. CTA button must be bulletproof (VML fallback for Outlook).
 6. Include web-safe font fallbacks.
 7. Honour the design tokens above strictly.
-8. Include the legal footer: {req.brand.legal_footer or ''}
+8. Include the legal footer: {footer}
 
 Return ONLY the raw HTML. Do not wrap it in JSON, markdown, or code fences.
 Start your response with <!DOCTYPE html> and end with </html>.
@@ -552,15 +600,25 @@ PARSE_SCHEMA: dict = {
 }
 
 
-def build_parse_prompt(user_prompt: str) -> str:
+def build_parse_prompt(user_prompt: str, force_proceed: bool = False) -> str:
     """
     Phase 0 – parse a free-form user prompt into a structured CampaignRequest.
 
     If any critical information is missing or ambiguous, set needs_clarification=true
     and populate questions. Otherwise set needs_clarification=false and fill campaign.
+    If force_proceed=True, never ask clarification — always extract and use defaults.
     """
+    force_instruction = (
+        """
+IMPORTANT: The user has already answered clarification questions. \
+Do NOT set needs_clarification=true under any circumstances. \
+Extract every detail you can from the prompt and use sensible defaults for anything still missing. \
+Always set needs_clarification=false and return a fully populated campaign object."""
+        if force_proceed
+        else ""
+    )
     return f"""\
-A user wants to generate a marketing email campaign. They described it in free text below.
+A user wants to generate a marketing email campaign. They described it in free text below.{force_instruction}
 
 Your job:
 1. Extract all structured campaign details you can infer from their description.

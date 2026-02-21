@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Upload, X, FileText, Image, Loader2, ArrowRight } from "lucide-react";
+import { Sparkles, Loader2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,52 +13,32 @@ export default function CreatePage() {
   const {
     prompt,
     setPrompt,
-    uploadedFiles,
-    addFiles,
-    removeFile,
     setGeneratedEmails,
     setStep,
     isGenerating,
     setIsGenerating,
   } = useCampaignStore();
 
-  const [dragActive, setDragActive] = useState(false);
   const [clarificationQuestions, setClarificationQuestions] = useState<ClarificationQuestion[]>([]);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragActive(false);
-      const files = Array.from(e.dataTransfer.files);
-      addFiles(files);
-    },
-    [addFiles]
-  );
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) addFiles(Array.from(e.target.files));
-  };
-
   const buildEnrichedPrompt = () => {
-    if (clarificationQuestions.length === 0) return prompt;
     const answersText = clarificationQuestions
-      .map((q) => `Q: ${q.question}\nA: ${clarificationAnswers[q.field] ?? ""}`)
-      .filter((entry) => entry.includes("\nA: ") && clarificationAnswers[clarificationQuestions.find(q => entry.includes(q.question))?.field ?? ""])
+      .map((q, i) => `Q: ${q.question}\nA: ${clarificationAnswers[i] ?? "(no answer provided)"}`)
       .join("\n\n");
     return answersText
-      ? `${prompt}\n\nAdditional context:\n${answersText}`
+      ? `${prompt}\n\nAdditional context from clarification:\n${answersText}`
       : prompt;
   };
 
-  const handleGenerate = async (enrichedPrompt?: string) => {
+  const handleGenerate = async (enrichedPrompt?: string, forceProceed = false) => {
     const activePrompt = enrichedPrompt ?? prompt;
     if (!activePrompt.trim()) return;
     setIsGenerating(true);
     setError(null);
     try {
-      const response = await generateCampaign({ prompt: activePrompt, files: uploadedFiles });
+      const response = await generateCampaign({ prompt: activePrompt, force_proceed: forceProceed });
 
       if (response.status === "needs_clarification" && response.questions?.length) {
         setClarificationQuestions(response.questions);
@@ -78,13 +58,9 @@ export default function CreatePage() {
   };
 
   const handleClarificationSubmit = () => {
+    const enriched = buildEnrichedPrompt();
     setClarificationQuestions([]);
-    handleGenerate(buildEnrichedPrompt());
-  };
-
-  const getFileIcon = (file: File) => {
-    if (file.type.startsWith("image/")) return <Image className="h-4 w-4 text-primary" />;
-    return <FileText className="h-4 w-4 text-primary" />;
+    handleGenerate(enriched, true);
   };
 
   // ── Clarification screen ──────────────────────────────────────────────────
@@ -115,7 +91,7 @@ export default function CreatePage() {
           className="space-y-4"
         >
           {clarificationQuestions.map((q, i) => (
-            <Card key={q.field} className="border border-border">
+            <Card key={i} className="border border-border">
               <CardContent className="p-5 space-y-3">
                 <p className="text-sm font-medium text-foreground">
                   <span className="text-muted-foreground mr-2">{i + 1}.</span>
@@ -124,9 +100,9 @@ export default function CreatePage() {
                 <Textarea
                   placeholder="Your answer (or leave blank to skip)..."
                   className="min-h-[80px] resize-none text-sm"
-                  value={clarificationAnswers[q.field] ?? ""}
+                  value={clarificationAnswers[i] ?? ""}
                   onChange={(e) =>
-                    setClarificationAnswers((prev) => ({ ...prev, [q.field]: e.target.value }))
+                    setClarificationAnswers((prev) => ({ ...prev, [i]: e.target.value }))
                   }
                 />
               </CardContent>
@@ -217,68 +193,11 @@ export default function CreatePage() {
         </Card>
       </motion.div>
 
-      {/* File Upload */}
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
-      >
-        <div
-          className={`relative rounded-lg border-2 border-dashed p-8 text-center transition-all ${
-            dragActive
-              ? "border-primary bg-accent"
-              : "border-border hover:border-primary/40 hover:bg-muted/50"
-          }`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
-        >
-          <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
-          <p className="mt-3 text-sm text-foreground">
-            Drop company assets here or{" "}
-            <label className="cursor-pointer text-primary hover:underline font-medium">
-              browse files
-              <input
-                type="file"
-                className="hidden"
-                multiple
-                onChange={handleFileInput}
-                accept=".pdf,.png,.jpg,.jpeg,.svg,.txt,.doc,.docx"
-              />
-            </label>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Logos, brand guidelines, company policies, legal docs
-          </p>
-        </div>
-
-        {/* Uploaded files list */}
-        {uploadedFiles.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {uploadedFiles.map((file, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-2 rounded border border-border bg-card px-3 py-1.5 text-xs"
-              >
-                {getFileIcon(file)}
-                <span className="max-w-[150px] truncate">{file.name}</span>
-                <button onClick={() => removeFile(index)} className="text-muted-foreground hover:text-foreground transition-colors">
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </motion.div>
-
       {/* Generate Button */}
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.6, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
         className="flex justify-center"
       >
         <Button

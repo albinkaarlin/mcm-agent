@@ -19,7 +19,7 @@ export interface ClarificationQuestion {
 
 export interface CampaignRequest {
   prompt: string;
-  files?: File[];
+  force_proceed?: boolean;
 }
 
 export interface CampaignResponse {
@@ -58,7 +58,7 @@ export async function generateCampaign(request: CampaignRequest): Promise<Campai
   const res = await fetch("/v1/campaigns/generate-from-prompt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: request.prompt }),
+    body: JSON.stringify({ prompt: request.prompt, force_proceed: request.force_proceed ?? false }),
   });
 
   if (!res.ok) {
