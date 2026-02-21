@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCampaignStore } from "@/lib/campaign-store";
-import { generateCampaign, type ClarificationQuestion } from "@/lib/api";
+import { generateCampaign } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 
 export default function CreatePage() {
@@ -23,9 +23,6 @@ export default function CreatePage() {
   } = useCampaignStore();
 
   const [dragActive, setDragActive] = useState(false);
-  const [clarificationQuestions, setClarificationQuestions] = useState<ClarificationQuestion[]>([]);
-  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -41,45 +38,19 @@ export default function CreatePage() {
     if (e.target.files) addFiles(Array.from(e.target.files));
   };
 
-  const buildEnrichedPrompt = () => {
-    if (clarificationQuestions.length === 0) return prompt;
-    const answersText = clarificationQuestions
-      .map((q) => `Q: ${q.question}\nA: ${clarificationAnswers[q.field] ?? ""}`)
-      .filter((entry) => entry.includes("\nA: ") && clarificationAnswers[clarificationQuestions.find(q => entry.includes(q.question))?.field ?? ""])
-      .join("\n\n");
-    return answersText
-      ? `${prompt}\n\nAdditional context:\n${answersText}`
-      : prompt;
-  };
-
-  const handleGenerate = async (enrichedPrompt?: string) => {
-    const activePrompt = enrichedPrompt ?? prompt;
-    if (!activePrompt.trim()) return;
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
     setIsGenerating(true);
-    setError(null);
     try {
-      const response = await generateCampaign({ prompt: activePrompt, files: uploadedFiles });
-
-      if (response.status === "needs_clarification" && response.questions?.length) {
-        setClarificationQuestions(response.questions);
-        setClarificationAnswers({});
-        return;
-      }
-
+      const response = await generateCampaign({ prompt, files: uploadedFiles });
       setGeneratedEmails(response.emails);
       setStep(1);
       navigate("/review");
-    } catch (err) {
-      console.error("Failed to generate campaign:", err);
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } catch (error) {
+      console.error("Failed to generate campaign:", error);
     } finally {
       setIsGenerating(false);
     }
-  };
-
-  const handleClarificationSubmit = () => {
-    setClarificationQuestions([]);
-    handleGenerate(buildEnrichedPrompt());
   };
 
   const getFileIcon = (file: File) => {
@@ -87,84 +58,6 @@ export default function CreatePage() {
     return <FileText className="h-4 w-4 text-primary" />;
   };
 
-  // ── Clarification screen ──────────────────────────────────────────────────
-  if (clarificationQuestions.length > 0) {
-    return (
-      <div className="mx-auto max-w-2xl space-y-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center space-y-3"
-        >
-          <div className="inline-flex items-center gap-2 rounded border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
-            A few quick questions
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Help Mark understand your <span className="gradient-text">campaign</span>
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Answer these to get the best results. You can leave any blank to use AI defaults.
-          </p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="space-y-4"
-        >
-          {clarificationQuestions.map((q, i) => (
-            <Card key={q.field} className="border border-border">
-              <CardContent className="p-5 space-y-3">
-                <p className="text-sm font-medium text-foreground">
-                  <span className="text-muted-foreground mr-2">{i + 1}.</span>
-                  {q.question}
-                </p>
-                <Textarea
-                  placeholder="Your answer (or leave blank to skip)..."
-                  className="min-h-[80px] resize-none text-sm"
-                  value={clarificationAnswers[q.field] ?? ""}
-                  onChange={(e) =>
-                    setClarificationAnswers((prev) => ({ ...prev, [q.field]: e.target.value }))
-                  }
-                />
-              </CardContent>
-            </Card>
-          ))}
-        </motion.div>
-
-        <div className="flex gap-3 justify-center">
-          <Button
-            variant="outline"
-            onClick={() => setClarificationQuestions([])}
-          >
-            Back
-          </Button>
-          <Button
-            size="lg"
-            className="h-11 px-8 text-sm font-semibold"
-            onClick={handleClarificationSubmit}
-            disabled={isGenerating}
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                Generate Campaign
-                <ArrowRight className="h-4 w-4" />
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Main create screen ────────────────────────────────────────────────────
   return (
     <div className="mx-auto max-w-2xl space-y-10">
       {/* Hero */}
@@ -181,14 +74,14 @@ export default function CreatePage() {
           className="inline-flex items-center gap-2 rounded border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground"
         >
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          AI-Powered Multi Channel Marketing 
+          AI-Powered Campaign Creation
         </motion.div>
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-[3.5rem] text-foreground leading-[1.1]">
           Create your next{" "}
           <span className="gradient-text">marketing campaign</span>
         </h1>
         <p className="mx-auto max-w-lg text-base text-muted-foreground leading-relaxed">
-          Describe your campaign goals, target audience, and preferences. <b>Mark</b> will generate
+          Describe your campaign goals, target audience, and preferences. Mark will generate
           personalized email campaigns tailored to your needs.
         </p>
       </motion.div>
@@ -199,10 +92,10 @@ export default function CreatePage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
       >
-        <Card className="border border-border shadow-sm hover:shadow-md transition-shadow">
+        <Card className="border border-border shadow-sm">
           <CardContent className="p-5 space-y-4">
             <Textarea
-              placeholder="Describe your campaign. 'Create a 3-email spring sale campaign targeting EU customers aged 25-40. Include GDPR compliance, use a professional but friendly tone, and promote our new collection with a 30% discount code.'"
+              placeholder="Describe your campaign... e.g. 'Create a 3-email spring sale campaign targeting EU customers aged 25-40. Include GDPR compliance, use a professional but friendly tone, and promote our new collection with a 30% discount code.'"
               className="min-h-[160px] resize-none border-0 bg-transparent p-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -284,7 +177,7 @@ export default function CreatePage() {
         <Button
           size="lg"
           className="h-11 px-8 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
-          onClick={() => handleGenerate()}
+          onClick={handleGenerate}
           disabled={!prompt.trim() || isGenerating}
         >
           {isGenerating ? (
@@ -300,16 +193,6 @@ export default function CreatePage() {
           )}
         </Button>
       </motion.div>
-
-        {error && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive text-center"
-          >
-            {error}
-          </motion.div>
-        )}
-      </div>
-    );
+    </div>
+  );
 }
