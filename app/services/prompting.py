@@ -344,18 +344,6 @@ Return ONLY valid JSON:
 
 # ── Phase 5 – HTML Production ─────────────────────────────────────────────────
 
-PRODUCTION_SCHEMA: dict = {
-    "type": "object",
-    "required": ["html", "accessibility_notes"],
-    "properties": {
-        "html": {"type": "string"},
-        "accessibility_notes": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
-    },
-}
-
 
 def build_production_prompt(
     req: CampaignRequest,
@@ -405,8 +393,9 @@ HTML REQUIREMENTS:
 6. Include web-safe font fallbacks.
 7. Legal footer at the very bottom: {footer}
 
-Return ONLY the raw HTML. Do not include any explanation, markdown, or code fences.
-Start your response with <!DOCTYPE html> and end with </html>.
+Output the raw HTML only. No markdown fences, no JSON, no explanation.
+The very first character must be < and the very last character must be >.
+Start with <!DOCTYPE html> and end with </html>.
 """
 
     # ── Explicit brand tokens mode ────────────────────────────────────────────
@@ -441,8 +430,9 @@ HTML REQUIREMENTS:
 7. Honour the design tokens above strictly.
 8. Include the legal footer: {footer}
 
-Return ONLY the raw HTML. Do not wrap it in JSON, markdown, or code fences.
-Start your response with <!DOCTYPE html> and end with </html>.
+Output the raw HTML only. No markdown fences, no JSON, no explanation.
+The very first character must be < and the very last character must be >.
+Start with <!DOCTYPE html> and end with </html>.
 """
 
 
@@ -654,7 +644,7 @@ percentage is mentioned.
 def build_edit_email_prompt(current_html: str, subject: str, instructions: str) -> str:
     """
     Given the current HTML email and user edit instructions, produce updated HTML.
-    Returns raw HTML (no JSON wrapper).
+    Returns raw HTML (no JSON wrapper, no markdown fences).
     """
     return f"""\
 You are editing an existing HTML email. Keep all valid structure, design, and inline CSS intact.
@@ -668,6 +658,7 @@ USER INSTRUCTIONS:
 CURRENT HTML:
 {current_html}
 
-Return ONLY the updated raw HTML. Start with <!DOCTYPE html> and end with </html>.
-Do not wrap in JSON, markdown, or code fences.
+Output the raw HTML only. No markdown fences, no JSON, no explanation.
+The very first character must be < and the very last character must be >.
+Start with <!DOCTYPE html> and end with </html>.
 """

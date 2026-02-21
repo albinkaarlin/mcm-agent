@@ -39,6 +39,29 @@ def _ms(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
+def _extract_html(raw: str) -> str:
+    """Strip fences/prose and return the first complete HTML document found."""
+    text = raw.strip()
+    # 1. Strip markdown code fences
+    for fence in ("```html", "```"):
+        if text.startswith(fence):
+            text = text[len(fence):].lstrip("\n")
+            break
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+    text = text.strip()
+    # 2. Try DOCTYPE-anchored match
+    m = re.search(r"(<!DOCTYPE\s+html[\s\S]*?</html>)", text, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # 3. Try plain <html>...</html>
+    m2 = re.search(r"(<html[\s\S]*?</html>)", text, re.IGNORECASE)
+    if m2:
+        return m2.group(1)
+    # 4. Last resort: return whatever we have after fence stripping
+    return text
+
+
 # ── External Research Stub Interface ─────────────────────────────────────────-
 # This interface is cleanly designed for future implementation with real web
 # browsing / search tools. Currently returns an empty result.
@@ -250,24 +273,17 @@ def _phase_production(
         result = client.generate_text(
             prompt=prompt,
             system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
-            json_schema=None,  # Raw HTML – no JSON wrapper
+            json_schema=None,  # raw HTML – no JSON wrapper
             temperature=0.2,
             max_output_tokens=8192,
         )
-        # Extract HTML robustly — Gemini sometimes prepends prose before the fence
-        html_text: str = result.get("text", "").strip()
+        html_text = _extract_html(result.get("text", ""))
 
-        # Try to find a <!DOCTYPE html>...</html> block anywhere in the response
-        match = re.search(r"(<!DOCTYPE\s+html[\s\S]*</html>)", html_text, re.IGNORECASE)
-        if match:
-            html_text = match.group(1).strip()
-        else:
-            # Fallback: strip markdown fences if present
-            for fence in ("```html", "```"):
-                if html_text.startswith(fence):
-                    html_text = html_text[len(fence):].strip()
-            if html_text.endswith("```"):
-                html_text = html_text[:-3].strip()
+        logger.debug(
+            "Phase 5 HTML for email %d (first 200 chars): %s",
+            asset.email_number,
+            repr(html_text[:200]),
+        )
 
         if not html_text:
             logger.warning("Phase 5 returned empty HTML for email %d", asset.email_number)

@@ -41,6 +41,25 @@ def _get_request_id(request: Request) -> str:
     return request.state.request_id if hasattr(request.state, "request_id") else str(uuid.uuid4())
 
 
+def _extract_html_from_text(raw: str) -> str:
+    """Strip fences / leading prose and return the first complete HTML document."""
+    text = raw.strip()
+    for fence in ("```html", "```"):
+        if text.startswith(fence):
+            text = text[len(fence):].lstrip("\n")
+            break
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+    text = text.strip()
+    m = re.search(r"(<!DOCTYPE\s+html[\s\S]*?</html>)", text, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m2 = re.search(r"(<html[\s\S]*?</html>)", text, re.IGNORECASE)
+    if m2:
+        return m2.group(1)
+    return text
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -236,17 +255,7 @@ async def edit_email(
         logger.exception("Edit email failed", extra={"request_id": request_id})
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    # Extract HTML robustly — Gemini sometimes prepends prose before the fence
-    html = result.get("text", "").strip()
-    match = re.search(r"(<!DOCTYPE\s+html[\s\S]*</html>)", html, re.IGNORECASE)
-    if match:
-        html = match.group(1).strip()
-    else:
-        for fence in ("```html", "```"):
-            if html.startswith(fence):
-                html = html[len(fence):].strip()
-        if html.endswith("```"):
-            html = html[:-3].strip()
+    html = _extract_html_from_text(result.get("text", ""))
 
     updated_email = SimpleEmail(
         id=payload.email_id,
