@@ -45,8 +45,8 @@ test:
 test-unit:
 	uv run pytest tests/test_models.py tests/test_validators.py -v --tb=short
 
-test-integration:
-	uv run pytest tests/test_campaigns.py -v --tb=short
+test-live:
+	uv run pytest --integration tests/test_integration.py -v -s
 
 # ── Code quality ──────────────────────────────────────────────────────────────
 lint:

@@ -376,7 +376,6 @@ DESIGN TOKENS:
 - Spacing unit: {dt.spacing_unit}
 - Border radius: {dt.border_radius}
 {f"- Logo URL: {dt.logo_url}" if dt.logo_url else ""}
-{"- Reference HTML style (match this look): [REFERENCE PROVIDED]" if req.brand.example_email_html else ""}
 
 EMAIL COPY:
 - Subject (use first option): {email_asset.get('subject_lines', [''])[0]}
@@ -392,14 +391,10 @@ HTML REQUIREMENTS:
 5. CTA button must be bulletproof (VML fallback for Outlook).
 6. Include web-safe font fallbacks.
 7. Honour the design tokens above strictly.
-8. Include the legal footer.
-9. After the HTML, list all accessibility checks you performed.
+8. Include the legal footer: {req.brand.legal_footer or ''}
 
-Return ONLY valid JSON:
-{{
-  "html": "<!DOCTYPE html>...",
-  "accessibility_notes": ["...", "..."]
-}}
+Return ONLY the raw HTML. Do not wrap it in JSON, markdown, or code fences.
+Start your response with <!DOCTYPE html> and end with </html>.
 """
 
 

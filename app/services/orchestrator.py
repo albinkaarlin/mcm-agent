@@ -249,16 +249,22 @@ def _phase_production(
         result = client.generate_text(
             prompt=prompt,
             system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
-            json_schema=prompting.PRODUCTION_SCHEMA,
-            temperature=0.2,  # Low temperature – deterministic HTML
+            json_schema=None,  # Raw HTML – no JSON wrapper
+            temperature=0.2,
             max_output_tokens=8192,
         )
-        raw_prod: dict[str, Any] = result.get("parsed") or {}
+        # Strip markdown code fences if the model wrapped the HTML anyway
+        html_text: str = result.get("text", "").strip()
+        for fence in ("```html", "```"):
+            if html_text.startswith(fence):
+                html_text = html_text[len(fence):].strip()
+        if html_text.endswith("```"):
+            html_text = html_text[:-3].strip()
 
         updated = asset.model_copy(
             update={
-                "html": raw_prod.get("html", ""),
-                "accessibility_notes": raw_prod.get("accessibility_notes", []),
+                "html": html_text,
+                "accessibility_notes": [],
             }
         )
         updated_assets.append(updated)

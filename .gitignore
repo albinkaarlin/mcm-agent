@@ -49,6 +49,9 @@ Thumbs.db
 *.log
 logs/
 
+# Integration test outputs
+outputs/
+
 # Distribution / packaging
 MANIFEST
 

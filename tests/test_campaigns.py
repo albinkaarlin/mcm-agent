@@ -149,13 +149,10 @@ def _make_mock_gemini_client():
         "latency_ms": 1500.0,
     }
 
-    # Production (HTML) response
+    # Production (HTML) response – orchestrator reads result["text"] directly now
     html_response = {
-        "text": "{}",
-        "parsed": {
-            "html": "<!DOCTYPE html><html><body>Test HTML</body></html>",
-            "accessibility_notes": ["Alt text added to all images."],
-        },
+        "text": "<!DOCTYPE html><html><body>Test HTML</body></html>",
+        "parsed": None,
         "model": "gemini-2.5-flash-test",
         "tokens_used": 1000,
         "latency_ms": 2000.0,

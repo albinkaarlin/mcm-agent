@@ -25,6 +25,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: live Gemini API tests (run with --integration)",
+]
 
 [tool.ruff]
 line-length = 100
