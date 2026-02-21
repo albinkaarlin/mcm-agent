@@ -500,3 +500,116 @@ def _format_email_bodies(emails: list[dict[str, Any]]) -> str:
         body = e.get("body_text", "(no body)")
         parts.append(f"--- EMAIL {num} BODY ---\n{body}")
     return "\n\n".join(parts)
+
+
+# ── Phase 0 – Prompt Parsing (frontend entry point) ───────────────────────────
+
+PARSE_SCHEMA: dict = {
+    "type": "object",
+    "required": ["needs_clarification", "questions", "campaign"],
+    "properties": {
+        "needs_clarification": {"type": "boolean"},
+        "questions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["field", "question"],
+                "properties": {
+                    "field": {"type": "string"},
+                    "question": {"type": "string"},
+                },
+            },
+        },
+        "campaign": {
+            "type": "object",
+            "properties": {
+                "campaign_name": {"type": "string"},
+                "brand_name": {"type": "string"},
+                "voice_guidelines": {"type": "string"},
+                "banned_phrases": {"type": "array", "items": {"type": "string"}},
+                "required_phrases": {"type": "array", "items": {"type": "string"}},
+                "legal_footer": {"type": "string"},
+                "primary_kpi": {
+                    "type": "string",
+                    "enum": [
+                        "revenue", "conversion_rate", "open_rate", "click_through_rate",
+                        "leads_generated", "brand_awareness", "customer_retention",
+                        "average_order_value", "roas",
+                    ],
+                },
+                "target_audience": {"type": "string"},
+                "offer": {"type": "string"},
+                "geo_scope": {"type": "string"},
+                "language": {"type": "string"},
+                "compliance_notes": {"type": "string"},
+                "send_window": {"type": "string"},
+                "discount_ceiling": {"type": "number"},
+                "number_of_emails": {"type": "integer", "minimum": 1, "maximum": 10},
+                "include_html": {"type": "boolean"},
+            },
+        },
+    },
+}
+
+
+def build_parse_prompt(user_prompt: str) -> str:
+    """
+    Phase 0 – parse a free-form user prompt into a structured CampaignRequest.
+
+    If any critical information is missing or ambiguous, set needs_clarification=true
+    and populate questions. Otherwise set needs_clarification=false and fill campaign.
+    """
+    return f"""\
+A user wants to generate a marketing email campaign. They described it in free text below.
+
+Your job:
+1. Extract all structured campaign details you can infer from their description.
+2. If critical details are MISSING OR AMBIGUOUS, set needs_clarification=true and add \
+specific questions to the questions array. Ask only what is truly necessary.
+3. If you have enough to proceed, set needs_clarification=false.
+
+Critical fields that MUST be present to generate:
+- What is the offer / promotion?
+- Who is the target audience?
+- How many emails should be in the series?
+- What is the brand name?
+
+Non-critical fields (use sensible defaults if missing):
+- voice/tone → default "Professional and friendly"
+- geo_scope → default "Global"
+- language → default "English"
+- primary_kpi → default "revenue"
+- include_html → default true
+
+USER PROMPT:
+\"\"\"{user_prompt}\"\"\"
+
+Return JSON matching the schema exactly. For campaign fields you cannot determine, \
+omit them (do not guess wildly). For discount_ceiling, only include if a specific \
+percentage is mentioned.
+"""
+
+
+# ── Email Edit Prompt (frontend "Apply Changes") ──────────────────────────────
+
+
+def build_edit_email_prompt(current_html: str, subject: str, instructions: str) -> str:
+    """
+    Given the current HTML email and user edit instructions, produce updated HTML.
+    Returns raw HTML (no JSON wrapper).
+    """
+    return f"""\
+You are editing an existing HTML email. Keep all valid structure, design, and inline CSS intact.
+Only change what the user's instructions request. Do not add new sections unless asked.
+
+CURRENT SUBJECT: {subject}
+
+USER INSTRUCTIONS:
+{instructions}
+
+CURRENT HTML:
+{current_html}
+
+Return ONLY the updated raw HTML. Start with <!DOCTYPE html> and end with </html>.
+Do not wrap in JSON, markdown, or code fences.
+"""

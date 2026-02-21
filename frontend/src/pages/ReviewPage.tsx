@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Sparkles, Pencil } from "lucide-react";
+import { ArrowRight, Sparkles, Pencil, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useCampaignStore } from "@/lib/campaign-store";
+import { editEmail } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
-import type { GeneratedEmail } from "@/lib/mock-api";
+import type { GeneratedEmail } from "@/lib/api";
 
 function EmailPreviewCard({
   email,
@@ -58,18 +59,32 @@ function EmailEditorModal({
   email,
   open,
   onClose,
+  onEmailUpdated,
 }: {
   email: GeneratedEmail | null;
   open: boolean;
   onClose: () => void;
+  onEmailUpdated: (updated: GeneratedEmail) => void;
 }) {
   const [editPrompt, setEditPrompt] = useState("");
+  const [isApplying, setIsApplying] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   if (!email) return null;
 
-  const handleSubmitEdit = () => {
-    console.log("Edit request for email", email.id, ":", editPrompt);
-    setEditPrompt("");
+  const handleSubmitEdit = async () => {
+    if (!editPrompt.trim()) return;
+    setIsApplying(true);
+    setEditError(null);
+    try {
+      const updated = await editEmail(email.id, email.htmlContent, email.subject, editPrompt);
+      onEmailUpdated(updated);
+      setEditPrompt("");
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to apply changes.");
+    } finally {
+      setIsApplying(false);
+    }
   };
 
   return (
@@ -131,14 +146,20 @@ function EmailEditorModal({
                     onChange={(e) => setEditPrompt(e.target.value)}
                     className="min-h-[140px] flex-1 text-xs"
                   />
+                  {editError && (
+                    <p className="text-xs text-destructive">{editError}</p>
+                  )}
                   <Button
                     size="sm"
                     onClick={handleSubmitEdit}
-                    disabled={!editPrompt.trim()}
+                    disabled={!editPrompt.trim() || isApplying}
                     className="w-full"
                   >
-                    <Sparkles className="h-3.5 w-3.5 mr-1" />
-                    Apply Changes
+                    {isApplying ? (
+                      <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Applying...</>
+                    ) : (
+                      <><Sparkles className="h-3.5 w-3.5 mr-1" />Apply Changes</>
+                    )}
                   </Button>
                 </div>
               </TabsContent>
@@ -152,13 +173,18 @@ function EmailEditorModal({
 
 export default function ReviewPage() {
   const navigate = useNavigate();
-  const { generatedEmails, setStep } = useCampaignStore();
+  const { generatedEmails, setStep, updateEmailHtml } = useCampaignStore();
   const [selectedEmail, setSelectedEmail] = useState<GeneratedEmail | null>(null);
 
   if (generatedEmails.length === 0) {
     navigate("/");
     return null;
   }
+
+  const handleEmailUpdated = (updated: GeneratedEmail) => {
+    updateEmailHtml(updated.id, updated.htmlContent);
+    setSelectedEmail(updated);
+  };
 
   const handleContinue = () => {
     setStep(2);
@@ -212,6 +238,7 @@ export default function ReviewPage() {
         email={selectedEmail}
         open={!!selectedEmail}
         onClose={() => setSelectedEmail(null)}
+        onEmailUpdated={handleEmailUpdated}
       />
     </div>
   );
