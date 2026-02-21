@@ -138,10 +138,10 @@ function EmailEditorModal({
               <TabsContent value="edit" className="flex-1 flex flex-col overflow-auto px-5 pb-5 mt-0">
                 <div className="flex flex-col gap-4 pt-2 flex-1">
                   <p className="text-xs text-muted-foreground">
-                    Describe the changes you'd like. The AI will regenerate this email based on your instructions.
+                    Describe the changes you'd like. <b>Mark</b> will regenerate this email based on your instructions.
                   </p>
                   <Textarea
-                    placeholder="e.g. Make the tone more formal, add a discount code section..."
+                    placeholder="Make the tone more formal, add a discount code section..."
                     value={editPrompt}
                     onChange={(e) => setEditPrompt(e.target.value)}
                     className="min-h-[140px] flex-1 text-xs"
@@ -203,7 +203,7 @@ export default function ReviewPage() {
           Review Your <span className="gradient-text">Campaign</span>
         </h1>
         <p className="text-muted-foreground text-sm">
-          Click any email to edit. Review AI analysis and make adjustments before sending.
+          Click any email to edit. Review <b>Mark's</b> analysis and make adjustments by further prompts before continuing.
         </p>
       </motion.div>
 

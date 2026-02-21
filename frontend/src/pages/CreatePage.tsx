@@ -181,14 +181,14 @@ export default function CreatePage() {
           className="inline-flex items-center gap-2 rounded border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground"
         >
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          AI-Powered Campaign Creation
+          AI-Powered Multi Channel Marketing 
         </motion.div>
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-[3.5rem] text-foreground leading-[1.1]">
           Create your next{" "}
           <span className="gradient-text">marketing campaign</span>
         </h1>
         <p className="mx-auto max-w-lg text-base text-muted-foreground leading-relaxed">
-          Describe your campaign goals, target audience, and preferences. Mark will generate
+          Describe your campaign goals, target audience, and preferences. <b>Mark</b> will generate
           personalized email campaigns tailored to your needs.
         </p>
       </motion.div>
@@ -199,10 +199,10 @@ export default function CreatePage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
       >
-        <Card className="border border-border shadow-sm">
+        <Card className="border border-border shadow-sm hover:shadow-md transition-shadow">
           <CardContent className="p-5 space-y-4">
             <Textarea
-              placeholder="Describe your campaign... e.g. 'Create a 3-email spring sale campaign targeting EU customers aged 25-40. Include GDPR compliance, use a professional but friendly tone, and promote our new collection with a 30% discount code.'"
+              placeholder="Describe your campaign. 'Create a 3-email spring sale campaign targeting EU customers aged 25-40. Include GDPR compliance, use a professional but friendly tone, and promote our new collection with a 30% discount code.'"
               className="min-h-[160px] resize-none border-0 bg-transparent p-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
