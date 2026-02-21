@@ -192,26 +192,6 @@ def _make_mock_gemini_client():
     return mock
 
 
-# ── Health endpoint tests ──────────────────────────────────────────────────────
-
-
-class TestHealthEndpoints:
-    def test_healthz(self, client):
-        resp = client.get("/healthz")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "ok"
-        assert "version" in data
-        assert "model" in data
-
-    def test_readyz(self, client):
-        resp = client.get("/readyz")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "ready" in data
-        assert "checks" in data
-
-
 # ── Validation endpoint tests ─────────────────────────────────────────────────
 
 

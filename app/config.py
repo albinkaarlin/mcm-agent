@@ -25,14 +25,9 @@ class Settings(BaseSettings):
     gemini_retry_min_wait: float = 1.0
     gemini_retry_max_wait: float = 30.0
 
-    # ── Rate limiting ─────────────────────────────────────────────────────────
-    rate_limit_per_minute: int = 30
-
     # ── App ───────────────────────────────────────────────────────────────────
     app_name: str = "Mark – AI Campaign Generator"
     app_version: str = "1.0.0"
-    debug: bool = False
-    log_level: str = "INFO"
 
 
 settings = Settings()
