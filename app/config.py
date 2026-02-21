@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # ── App ───────────────────────────────────────────────────────────────────
     app_name: str = "Mark – AI Campaign Generator"
     app_version: str = "1.0.0"
-
+    # ── Email / SendGrid ──────────────────────────────────────────────────────
+    sendgrid_api_key: str = ""
+    email_from: str = ""
+    email_reply_to: str = ""
 
 settings = Settings()
