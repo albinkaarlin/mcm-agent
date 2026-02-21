@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
 from app.routes.campaigns import router as campaigns_router
+from app.routes.email import router as email_router
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -44,3 +45,4 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.add_middleware(RequestIDMiddleware)
 
 app.include_router(campaigns_router)
+app.include_router(email_router)
