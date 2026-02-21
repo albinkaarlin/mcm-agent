@@ -42,15 +42,19 @@ class CampaignStatus(str, Enum):
 
 
 class DesignTokens(BaseModel):
-    primary_color: str = Field(default="#000000", examples=["#0055FF"])
-    secondary_color: str = Field(default="#FFFFFF", examples=["#FF3300"])
-    accent_color: Optional[str] = Field(default=None, examples=["#FFD700"])
+    auto_design: bool = Field(
+        default=True,
+        description="If True, the model chooses a beautiful design. Set False to enforce the tokens below.",
+    )
+    primary_color: str = Field(default="#6366f1", examples=["#0055FF"])
+    secondary_color: str = Field(default="#ffffff", examples=["#FF3300"])
+    accent_color: Optional[str] = Field(default="#f59e0b", examples=["#FFD700"])
     font_family_heading: str = Field(default="Georgia, serif")
     font_family_body: str = Field(default="Arial, sans-serif")
     font_size_base: str = Field(default="16px")
     line_height: str = Field(default="1.6")
     spacing_unit: str = Field(default="8px")
-    border_radius: str = Field(default="4px")
+    border_radius: str = Field(default="6px")
     logo_url: Optional[str] = Field(default=None)
 
 
@@ -314,6 +318,10 @@ class PromptRequest(BaseModel):
         min_length=10,
         description="Free-form campaign description from the user.",
         examples=["Create a 3-email spring sale for EU customers, 30% off, GDPR compliant."],
+    )
+    force_proceed: bool = Field(
+        default=False,
+        description="If True, skip clarification and proceed with defaults for any missing fields.",
     )
 
 

@@ -4,6 +4,7 @@ app/routes/campaigns.py – campaign generation and validation endpoints.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -143,7 +144,7 @@ async def generate_from_prompt(
     # ── Phase 0: parse free-form prompt ───────────────────────────────────────
     try:
         parse_result = client.generate_text(
-            prompt=prompting.build_parse_prompt(payload.prompt),
+            prompt=prompting.build_parse_prompt(payload.prompt, force_proceed=payload.force_proceed),
             system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
             json_schema=prompting.PARSE_SCHEMA,
             temperature=0.1,
@@ -181,6 +182,7 @@ async def generate_from_prompt(
             req=campaign_req,
             request_id=request_id,
             client=client,
+            skip_clarify=payload.force_proceed,
         )
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -234,13 +236,17 @@ async def edit_email(
         logger.exception("Edit email failed", extra={"request_id": request_id})
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    # Strip any markdown fences the model may wrap around HTML
+    # Extract HTML robustly — Gemini sometimes prepends prose before the fence
     html = result.get("text", "").strip()
-    for fence in ("```html", "```"):
-        if html.startswith(fence):
-            html = html[len(fence):].strip()
-    if html.endswith("```"):
-        html = html[:-3].strip()
+    match = re.search(r"(<!DOCTYPE\s+html[\s\S]*</html>)", html, re.IGNORECASE)
+    if match:
+        html = match.group(1).strip()
+    else:
+        for fence in ("```html", "```"):
+            if html.startswith(fence):
+                html = html[len(fence):].strip()
+        if html.endswith("```"):
+            html = html[:-3].strip()
 
     updated_email = SimpleEmail(
         id=payload.email_id,

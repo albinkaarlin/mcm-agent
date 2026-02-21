@@ -13,6 +13,7 @@ Phases
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Optional
 
@@ -253,13 +254,23 @@ def _phase_production(
             temperature=0.2,
             max_output_tokens=8192,
         )
-        # Strip markdown code fences if the model wrapped the HTML anyway
+        # Extract HTML robustly — Gemini sometimes prepends prose before the fence
         html_text: str = result.get("text", "").strip()
-        for fence in ("```html", "```"):
-            if html_text.startswith(fence):
-                html_text = html_text[len(fence):].strip()
-        if html_text.endswith("```"):
-            html_text = html_text[:-3].strip()
+
+        # Try to find a <!DOCTYPE html>...</html> block anywhere in the response
+        match = re.search(r"(<!DOCTYPE\s+html[\s\S]*</html>)", html_text, re.IGNORECASE)
+        if match:
+            html_text = match.group(1).strip()
+        else:
+            # Fallback: strip markdown fences if present
+            for fence in ("```html", "```"):
+                if html_text.startswith(fence):
+                    html_text = html_text[len(fence):].strip()
+            if html_text.endswith("```"):
+                html_text = html_text[:-3].strip()
+
+        if not html_text:
+            logger.warning("Phase 5 returned empty HTML for email %d", asset.email_number)
 
         updated = asset.model_copy(
             update={
@@ -333,6 +344,7 @@ def orchestrate_campaign(
     request_id: str,
     client: GeminiClient,
     external_research: Optional[ExternalResearchProvider] = None,
+    skip_clarify: bool = False,
 ) -> CampaignResponse:
     """
     Run the full multi-phase campaign generation workflow.
@@ -349,9 +361,15 @@ def orchestrate_campaign(
     )
 
     # ── Phase 1: Clarification ────────────────────────────────────────────────
-    t = time.perf_counter()
-    needs_clarification, questions = _phase_clarify(req, client)
-    timings.clarify_ms = _ms(t)
+    if skip_clarify:
+        logger.info("Skipping Phase 1 clarification (force_proceed)", extra={"request_id": request_id})
+        needs_clarification = False
+        questions = []
+        timings.clarify_ms = 0.0
+    else:
+        t = time.perf_counter()
+        needs_clarification, questions = _phase_clarify(req, client)
+        timings.clarify_ms = _ms(t)
 
     if needs_clarification:
         logger.info(
