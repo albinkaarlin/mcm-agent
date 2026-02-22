@@ -846,6 +846,7 @@ def build_rapid_batch_prompt(req: CampaignRequest) -> str:
     send_window = req.constraints.send_window or "ASAP"
 
     banned = ", ".join(brand.banned_phrases or []) or "none"
+    required = ", ".join(brand.required_phrases or []) or "none"
     channels = ", ".join(ch.value if hasattr(ch, "value") else str(ch) for ch in req.channels) or "email"
     kpis = ", ".join(
         [obj.primary_kpi.value] + [k.value for k in (obj.secondary_kpis or [])]
@@ -853,29 +854,48 @@ def build_rapid_batch_prompt(req: CampaignRequest) -> str:
     n_emails = del_req.number_of_emails
     voice = brand.voice_guidelines or "professional, warm, conversational"
     brand_color = brand.design_tokens.primary_color if brand.design_tokens else "#0066cc"
+    font_heading = brand.design_tokens.font_family_heading if brand.design_tokens else "Arial, sans-serif"
+    font_body = brand.design_tokens.font_family_body if brand.design_tokens else "Arial, sans-serif"
+    border_radius = brand.design_tokens.border_radius if brand.design_tokens else "6px"
+    logo_url = brand.design_tokens.logo_url if brand.design_tokens else None
+    legal_footer = brand.legal_footer or ""
+    _footer_rule = ("\n- The footer_line must include the legal text: " + legal_footer) if legal_footer else ""
 
     return f"""\
 You are a senior email marketing strategist and award-winning copywriter.
 
 CAMPAIGN BRIEF
 ==============
-Brand:           {brand.brand_name}
-Voice/Tone:      {voice}
-Banned phrases:  {banned}
-Primary colour:  {brand_color}
+Brand:            {brand.brand_name}
+Voice/Tone:       {voice}
+Banned phrases:   {banned}
+Required phrases: {required}
+Primary colour:   {brand_color}
+Font – Heading:   {font_heading}
+Font – Body:      {font_body}
+Border radius:    {border_radius}{f'''
+Logo URL:         {logo_url}''' if logo_url else ''}
 
-Offer:           {obj.offer}
-Target audience: {obj.target_audience}
-KPIs:            {kpis}
-Language:        {obj.language or "en"}
-Channels:        {channels}
-Send window:     {send_window}
-Number of emails:{n_emails}
+Offer:            {obj.offer}
+Target audience:  {obj.target_audience}
+KPIs:             {kpis}
+Language:         {obj.language or "en"}
+Channels:         {channels}
+Send window:      {send_window}
+Number of emails: {n_emails}
 
 TASK
 ====
 Generate all {n_emails} email(s) for this campaign. Each email must have a distinct \
 narrative angle that builds a logical arc (e.g. teaser → main offer → urgency → last-chance).
+
+PERSONALISATION RULES
+=====================
+- USE the brand name "{brand.brand_name}" naturally in copy — not just in the header.
+- REFLECT the brand voice "{voice}" throughout every sentence.
+- WEAVE IN required phrases naturally (do not just append them): {required}
+- The intro_paragraph must address the specific audience "{obj.target_audience}" directly.
+- Make the offer_line specific to this brand and offer — avoid generic copy like "exclusive opportunity".{_footer_rule}
 
 For each email return ALL of the following fields:
 - email_number     integer, starting at 1
@@ -887,12 +907,12 @@ For each email return ALL of the following fields:
 - sections         object with EXACTLY these 8 keys:
     headline          compelling H1, max 10 words, no trailing full stop
     preheader         80–90 chars supplementing the subject line
-    intro_paragraph   2–3 sentence hook addressing reader's pain or aspiration
-    offer_line        the specific offer stated concisely and compellingly
+    intro_paragraph   2–3 sentence hook addressing the reader's specific pain or aspiration as {obj.target_audience}
+    offer_line        the specific offer stated concisely for {brand.brand_name} — no generic filler
     body_bullets      2–4 benefit bullets, each max 12 words, start with a verb
     cta_button        button label, max 5 words, action-oriented
     urgency_line      1-sentence deadline/scarcity (use empty string "" if not applicable)
-    footer_line       1-sentence friendly company sign-off / legal note
+    footer_line       brand sign-off{f" incorporating: {legal_footer}" if legal_footer else " — friendly 1-sentence closing"}
 
 LANGUAGE RULES
 ==============

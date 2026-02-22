@@ -323,6 +323,10 @@ class PromptRequest(BaseModel):
         default=False,
         description="If True, skip clarification and proceed with defaults for any missing fields.",
     )
+    brand_context: Optional[dict] = Field(
+        default=None,
+        description="Optional brand context from the frontend brand store. Overrides prompt-parsed brand fields.",
+    )
 
 
 class SimpleSummary(BaseModel):
