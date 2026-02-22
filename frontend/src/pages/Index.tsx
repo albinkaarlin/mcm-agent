@@ -1,48 +1,45 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ArrowRight, Link2, Loader2, AlertCircle } from "lucide-react";
+import { Sparkles, ArrowRight, Link2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import markLogo from "@/assets/mark-logo.png";
 
-async function connectHubSpot(): Promise<{ success: boolean }> {
-  // Mock API call — replace with real HubSpot CRM integration
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      // Simulate success (flip to reject to test failure)
-      resolve({ success: true });
-    }, 2000);
-  });
-}
-
 export default function Index() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const [connecting, setConnecting] = useState(false);
 
-  const handleConnect = async () => {
-    setConnecting(true);
-    try {
-      const result = await connectHubSpot();
-      if (result.success) {
-        toast({
-          title: "CRM connected",
-          description: "HubSpot linked successfully. Let's create your first campaign.",
-        });
-        navigate("/create");
-      } else {
-        throw new Error("Connection failed");
-      }
-    } catch {
+  // When user comes back from HubSpot (via your backend redirect)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const connected = params.get("connected");
+    const error = params.get("error");
+
+    if (connected === "1") {
+      toast({
+        title: "CRM connected",
+        description: "HubSpot linked successfully. Let's create your first campaign.",
+      });
+      // Go to create page and clear query params
+      navigate("/create", { replace: true });
+    } else if (error) {
       toast({
         variant: "destructive",
         title: "Connection failed",
         description: "Could not connect to HubSpot. Please try again.",
       });
-    } finally {
-      setConnecting(false);
+      // Clear query params so the toast doesn't repeat on refresh
+      navigate("/", { replace: true });
     }
+  }, [location.search, toast, navigate]);
+
+  const handleConnect = () => {
+    setConnecting(true);
+    // Send user to backend to start OAuth
+    window.location.href = "http://localhost:3000/auth/hubspot";
   };
 
   return (
