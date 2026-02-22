@@ -1,9 +1,12 @@
 // server.cjs
-require('dotenv').config();
-const express = require('express');
-const axios = require('axios');
+require("dotenv").config();
+const express = require("express");
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
+app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -48,7 +51,7 @@ app.use((req, res, next) => {
 // ── 1. Start OAuth ─────────────────────────────────────────────────────────
 app.get('/auth/hubspot', (req, res) => {
   const authUrl =
-    'https://app.hubspot.com/oauth/authorize' +
+    "https://app.hubspot.com/oauth/authorize" +
     `?client_id=${encodeURIComponent(CLIENT_ID)}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
     `&scope=${encodeURIComponent(SCOPES)}`;
@@ -62,9 +65,9 @@ app.get('/oauth/callback', async (req, res) => {
 
   try {
     const tokenResponse = await axios.post(
-      'https://api.hubapi.com/oauth/v1/token',
+      "https://api.hubapi.com/oauth/v1/token",
       new URLSearchParams({
-        grant_type: 'authorization_code',
+        grant_type: "authorization_code",
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
         redirect_uri: REDIRECT_URI,
@@ -110,7 +113,22 @@ app.get('/api/refresh', async (req, res) => {
 
 async function fetchContacts(token) {
   const response = await axios.get(
-    'https://api.hubapi.com/crm/v3/objects/contacts',
+    "https://api.hubapi.com/crm/v3/objects/contacts",
+    {
+      params: {
+        limit: 50,
+        properties: "firstname,lastname,email,age,membership_level,membership_startdate,city,country",
+      },
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  return response.data.results || [];
+}
+
+// Helper to fetch companies from HubSpot
+async function fetchCompanies(token) {
+  const response = await axios.get(
+    "https://api.hubapi.com/crm/v3/objects/companies",
     {
       params: {
         limit: 100,
