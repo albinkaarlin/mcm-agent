@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -14,6 +14,7 @@ import {
   Plus,
   List,
   ChevronDown,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,9 +39,12 @@ import {
   type CampaignStatus,
 } from "@/lib/campaigns-list-store";
 import { useMailListStore } from "@/lib/mail-list-store";
-import { editEmail, sendCampaign, type CampaignSendTask } from "@/lib/api";
+import { editEmail, sendCampaign, recommendRecipients, type CampaignSendTask } from "@/lib/api";
 import type { GeneratedEmail } from "@/lib/api";
 import ConfigureMailingDialog from "@/components/ConfigureMailingDialog";
+import { useHubSpotContactsStore } from "@/lib/hubspot-contacts-store";
+import { useHubSpotStore } from "@/lib/hubspot-store";
+import { scoreSegment } from "@/lib/crm-parser";
 import { toast } from "@/hooks/use-toast";
 
 // ── Status config ──────────────────────────────────────────────────────────
@@ -185,7 +189,7 @@ function EmailModal({
         email.subject,
         editPrompt
       );
-      updateEmailHtml(campaignId, email.id, updated.htmlContent);
+      updateEmailHtml(campaignId, email.id, updated);
       setEditPrompt("");
       toast({
         title: "Email updated",
@@ -424,18 +428,36 @@ export default function CampaignDetailPage() {
   const { campaigns, updateCampaign, setEmailAssignment } =
     useCampaignsStore();
   const { lists, addList } = useMailListStore();
+  const { segments, rawContactsCsv } = useHubSpotContactsStore();
+  const { connected } = useHubSpotStore();
 
   const campaign = campaigns.find((c) => c.id === id);
 
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isAiMatching, setIsAiMatching] = useState(false);
+  const [aiReasoning, setAiReasoning] = useState<string | null>(null);
   const [showCreateList, setShowCreateList] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [newListEmails, setNewListEmails] = useState("");
   const [selectedLists, setSelectedLists] = useState<Record<string, string[]>>(
     {}
   );
+  const [selectedSegments, setSelectedSegments] = useState<Record<string, string[]>>({});
+
+  const suggestedSegments = useMemo(() => {
+    if (!campaign) return {};
+    const result: Record<string, Set<string>> = {};
+    for (const email of campaign.emails) {
+      const suggested = new Set<string>();
+      for (const seg of segments) {
+        if (scoreSegment(seg, email.summary.targetGroup) > 0) suggested.add(seg.id);
+      }
+      result[email.id] = suggested;
+    }
+    return result;
+  }, [campaign, segments]);
 
   if (!campaign) {
     return (
@@ -459,6 +481,55 @@ export default function CampaignDetailPage() {
     (acc, r) => acc + r.length,
     0
   );
+
+  const handleToggleSegment = (emailId: string, segId: string) => {
+    setSelectedSegments((prev) => {
+      const current = prev[emailId] ?? [];
+      const isSelected = current.includes(segId);
+      const updated = isSelected
+        ? current.filter((id) => id !== segId)
+        : [...current, segId];
+      const allEmails = segments
+        .filter((s) => updated.includes(s.id))
+        .flatMap((s) => s.emails);
+      setEmailAssignment(campaign.id, emailId, Array.from(new Set(allEmails)));
+      return { ...prev, [emailId]: updated };
+    });
+  };
+
+  const handleAiMatch = async () => {
+    if (!rawContactsCsv) return;
+    setIsAiMatching(true);
+    try {
+      const emailSpecs = campaign.emails.map((e) => ({
+        id: e.id,
+        subject: e.subject,
+        target_group: e.summary.targetGroup,
+      }));
+      const { assignments: aiAssignments, reasoning } = await recommendRecipients(
+        emailSpecs,
+        rawContactsCsv
+      );
+      for (const [emailId, addrs] of Object.entries(aiAssignments)) {
+        setEmailAssignment(campaign.id, emailId, addrs);
+      }
+      setSelectedSegments({});
+      setSelectedLists({});
+      setAiReasoning(reasoning || null);
+      toast({
+        title: "AI recipients matched",
+        description: reasoning || "Contacts assigned to each email variant.",
+      });
+    } catch (err) {
+      toast({
+        title: "AI matching failed",
+        description: err instanceof Error ? err.message : "Something went wrong.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAiMatching(false);
+    }
+  };
 
   const handleToggleList = (emailId: string, listId: string) => {
     setSelectedLists((prev) => {
@@ -677,6 +748,36 @@ export default function CampaignDetailPage() {
 
           {campaign.status !== "sent" && (
             <>
+              {/* AI match banner */}
+              {connected && rawContactsCsv && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                    <div>
+                      <p className="text-xs text-primary font-medium">
+                        AI-powered recipient matching
+                      </p>
+                      {aiReasoning && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{aiReasoning}</p>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7 border-primary/40 text-primary hover:bg-primary/10 shrink-0"
+                    onClick={handleAiMatch}
+                    disabled={isAiMatching}
+                  >
+                    {isAiMatching ? "Matching…" : "AI Match"}
+                  </Button>
+                </motion.div>
+              )}
+
               <div className="flex justify-end">
                 <Button
                   variant="outline"
@@ -708,8 +809,15 @@ export default function CampaignDetailPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="px-5 pb-5">
-                      <Tabs defaultValue="manual">
+                      <Tabs defaultValue={connected && segments.length > 0 ? "audiences" : "manual"}>
                         <TabsList className="w-full">
+                          <TabsTrigger
+                            value="audiences"
+                            className="flex-1 text-xs"
+                          >
+                            <Users className="h-3 w-3 mr-1.5" />
+                            Audiences
+                          </TabsTrigger>
                           <TabsTrigger
                             value="manual"
                             className="flex-1 text-xs"
@@ -722,6 +830,86 @@ export default function CampaignDetailPage() {
                             Mail List
                           </TabsTrigger>
                         </TabsList>
+
+                        {/* Audiences tab */}
+                        <TabsContent value="audiences" className="mt-3">
+                          {!connected ? (
+                            <div className="flex flex-col items-center gap-3 py-6 text-center">
+                              <Link2 className="h-5 w-5 text-muted-foreground" />
+                              <p className="text-xs text-muted-foreground max-w-xs">
+                                Connect HubSpot to automatically pull your contact segments here.
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs"
+                                onClick={() =>
+                                  (window.location.href = "http://localhost:3000/auth/hubspot")
+                                }
+                              >
+                                Connect HubSpot
+                              </Button>
+                            </div>
+                          ) : segments.length === 0 ? (
+                            <div className="flex flex-col items-center gap-2 py-6 text-center">
+                              <p className="text-xs text-muted-foreground">
+                                No contact segments found in your HubSpot account.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {segments.map((seg) => {
+                                const isSuggested =
+                                  suggestedSegments[email.id]?.has(seg.id) ?? false;
+                                const isChecked =
+                                  selectedSegments[email.id]?.includes(seg.id) ?? false;
+                                return (
+                                  <button
+                                    key={seg.id}
+                                    type="button"
+                                    onClick={() =>
+                                      handleToggleSegment(email.id, seg.id)
+                                    }
+                                    className={[
+                                      "flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-xs transition-colors text-left",
+                                      isChecked
+                                        ? "border-primary/50 bg-primary/5"
+                                        : "border-border bg-card hover:bg-accent/50",
+                                    ].join(" ")}
+                                  >
+                                    <Checkbox
+                                      checked={isChecked}
+                                      className="pointer-events-none shrink-0"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-medium text-foreground">
+                                          {seg.name}
+                                        </span>
+                                        {isSuggested && (
+                                          <Badge className="text-[9px] px-1.5 py-0 h-4 bg-primary/15 text-primary border-0 rounded gap-0.5">
+                                            <Sparkles className="h-2.5 w-2.5" />
+                                            Suggested
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                                        {seg.filterLabel}
+                                      </p>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                              {(assignments[email.id]?.length ?? 0) > 0 && (
+                                <p className="text-[10px] text-muted-foreground pt-1 pl-1">
+                                  {assignments[email.id].length} unique recipient
+                                  {assignments[email.id].length !== 1 ? "s" : ""} selected
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </TabsContent>
+
                         <TabsContent value="manual" className="mt-3">
                           <Textarea
                             placeholder="Enter email addresses separated by commas or new lines..."

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Mail, Send, Loader2, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ interface ConfigureMailingDialogProps {
   onOpenChange: (open: boolean) => void;
   emails: GeneratedEmail[];
   emailAssignments: Record<string, string[]>;
+  defaultFromEmail?: string;
   onSend: (config: MailingConfig) => void;
   isSending: boolean;
 }
@@ -36,13 +37,19 @@ export default function ConfigureMailingDialog({
   onOpenChange,
   emails,
   emailAssignments,
+  defaultFromEmail = "",
   onSend,
   isSending,
 }: ConfigureMailingDialogProps) {
-  const [fromEmail, setFromEmail] = useState("");
+  const [fromEmail, setFromEmail] = useState(defaultFromEmail);
   const [replyTo, setReplyTo] = useState("");
   const [plainTexts, setPlainTexts] = useState<Record<string, string>>({});
   const [subjects, setSubjects] = useState<Record<string, string>>({});
+
+  // Re-sync if the default changes after mount
+  useEffect(() => {
+    setFromEmail((prev) => prev || defaultFromEmail);
+  }, [defaultFromEmail]);
 
   const totalRecipients = Object.values(emailAssignments).reduce(
     (acc, r) => acc + r.length,

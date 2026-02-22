@@ -195,6 +195,28 @@ export interface CampaignSendTask {
   subject: string;
 }
 
+export interface RecipientRecommendation {
+  assignments: Record<string, string[]>; // email_id -> [email addresses]
+  reasoning: string;
+}
+
+export async function recommendRecipients(
+  emails: { id: string; subject: string; target_group: string }[],
+  contacts_csv: string
+): Promise<RecipientRecommendation> {
+  const res = await fetch("/v1/campaigns/recommend-recipients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ emails, contacts_csv }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API error ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+
 export async function sendCampaign(
   tasks: CampaignSendTask[]
 ): Promise<{ sent: number; failed: { recipient: string; error: string }[] }> {

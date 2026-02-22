@@ -19,8 +19,11 @@ from app.models import (
     DesignTokens,
     EmailEditRequest,
     EmailEditResponse,
+    EmailSpec,
     PrimaryKPI,
     PromptRequest,
+    RecipientRecommendRequest,
+    RecipientRecommendResponse,
     SimpleCampaignResponse,
     SimpleClarificationQuestion,
     SimpleEmail,
@@ -463,3 +466,102 @@ async def validate_campaign(
         issues=issues,
         recommendations=recommendations,
     )
+
+
+@router.post(
+    "/recommend-recipients",
+    response_model=RecipientRecommendResponse,
+    status_code=status.HTTP_200_OK,
+    summary="AI-powered recipient matching",
+    description=(
+        "Given a list of email variants with their target groups and a HubSpot contacts CSV, "
+        "uses Gemini to assign each contact to the most appropriate email variant. "
+        "Returns a mapping of email_id → [contact email addresses], plus a brief reasoning string."
+    ),
+)
+async def recommend_recipients(
+    payload: RecipientRecommendRequest,
+    request: Request,
+    client: GeminiClient = Depends(get_gemini_client),
+) -> RecipientRecommendResponse:
+    request_id = _get_request_id(request)
+    logger.info(
+        "POST /recommend-recipients",
+        extra={"request_id": request_id, "n_emails": len(payload.emails)},
+    )
+
+    variants_json = "\n".join(
+        f"{i + 1}. id={e.id!r} | subject={e.subject!r} | target_group={e.target_group!r}"
+        for i, e in enumerate(payload.emails)
+    )
+
+    prompt = f"""\
+You are a CRM specialist. Your task is to assign HubSpot contacts to the most relevant email variant in a marketing campaign.
+
+EMAIL VARIANTS
+==============
+{variants_json}
+
+CONTACTS CSV (firstname,lastname,email,age,membership_level,membership_startdate,city,country)
+===========================================================================================
+{payload.contacts_csv}
+
+RULES
+=====
+- Assign each contact to AT MOST ONE variant — the best fit based on their attributes vs the target_group.
+- If a contact has no clear match, leave them unassigned.
+- Use membership_level, country, city, and age to decide relevance.
+- Every valid email address in the CSV should be considered.
+
+Return ONLY valid JSON — no code fences, no prose — in exactly this shape:
+{{
+  "assignments": {{
+    "<email_variant_id>": ["contact@email.com", ...],
+    ...
+  }},
+  "reasoning": "1-2 sentence summary of how you matched contacts."
+}}
+"""
+
+    try:
+        result = client.generate_text(prompt=prompt)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    raw_text = result.get("text", "")
+    parsed = result.get("parsed") or {}
+
+    # Try parsed first, then fall back to text extraction
+    if not isinstance(parsed.get("assignments"), dict):
+        import json as _json
+        try:
+            # Strip possible markdown fences
+            clean = raw_text.strip()
+            for fence in ("```json", "```"):
+                if clean.startswith(fence):
+                    clean = clean[len(fence):].lstrip("\n")
+            if clean.endswith("```"):
+                clean = clean[:-3].rstrip()
+            parsed = _json.loads(clean)
+        except Exception:
+            parsed = {}
+
+    assignments: dict[str, list[str]] = {}
+    valid_ids = {e.id for e in payload.emails}
+    raw_assignments = parsed.get("assignments", {})
+    if isinstance(raw_assignments, dict):
+        for eid, addrs in raw_assignments.items():
+            if eid in valid_ids and isinstance(addrs, list):
+                assignments[eid] = [a for a in addrs if isinstance(a, str) and "@" in a]
+
+    reasoning = parsed.get("reasoning", "")
+    if not isinstance(reasoning, str):
+        reasoning = ""
+
+    logger.info(
+        "[recommend-recipients] assigned %d total contacts across %d variants",
+        sum(len(v) for v in assignments.values()),
+        len(assignments),
+    )
+
+    return RecipientRecommendResponse(assignments=assignments, reasoning=reasoning)

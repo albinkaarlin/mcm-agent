@@ -374,3 +374,30 @@ class EmailEditRequest(BaseModel):
 
 class EmailEditResponse(BaseModel):
     email: SimpleEmail
+
+
+class EmailSpec(BaseModel):
+    """Minimal email variant descriptor for recipient recommendation."""
+
+    id: str
+    subject: str
+    target_group: str
+
+
+class RecipientRecommendRequest(BaseModel):
+    emails: list[EmailSpec]
+    contacts_csv: str = Field(
+        ...,
+        description="Raw CSV exported from HubSpot: firstname,lastname,email,age,membership_level,...",
+    )
+
+
+class RecipientRecommendResponse(BaseModel):
+    assignments: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Maps email variant id -> list of contact email addresses.",
+    )
+    reasoning: str = Field(
+        default="",
+        description="Brief explanation of how contacts were matched.",
+    )
