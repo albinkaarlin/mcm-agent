@@ -41,6 +41,7 @@ class SendEmailResponse(BaseModel):
 class EmailConfigResponse(BaseModel):
     configured: bool
     missing: list[str]
+    from_email: str = ""
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -96,4 +97,4 @@ async def email_config() -> EmailConfigResponse:
     if not settings.email_from:
         missing.append("EMAIL_FROM")
 
-    return EmailConfigResponse(configured=len(missing) == 0, missing=missing)
+    return EmailConfigResponse(configured=len(missing) == 0, missing=missing, from_email=settings.email_from or "")

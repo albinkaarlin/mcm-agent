@@ -9,6 +9,7 @@ import CreatePage from "@/pages/CreatePage";
 import ReviewPage from "@/pages/ReviewPage";
 import CampaignsPage from "@/pages/CampaignsPage";
 import CampaignDetailPage from "@/pages/CampaignDetailPage";
+import SendPage from "@/pages/SendPage";
 import BrandPage from "@/pages/BrandPage";
 import NotFound from "./pages/NotFound";
 
@@ -27,6 +28,7 @@ const App = () => (
             <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
             <Route path="/create" element={<CreatePage />} />
             <Route path="/review" element={<ReviewPage />} />
+            <Route path="/send" element={<SendPage />} />
             <Route path="/brand" element={<BrandPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

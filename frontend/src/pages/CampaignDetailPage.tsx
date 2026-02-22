@@ -8,19 +8,13 @@ import {
   CheckCircle2,
   XCircle,
   Mail,
-  Users,
-  Settings2,
   Loader2,
-  Plus,
-  List,
-  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -29,18 +23,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
   useCampaignsStore,
   type CampaignStatus,
 } from "@/lib/campaigns-list-store";
-import { useMailListStore } from "@/lib/mail-list-store";
-import { editEmail, sendCampaign, type CampaignSendTask } from "@/lib/api";
+import { useCampaignStore } from "@/lib/campaign-store";
+import { editEmail } from "@/lib/api";
 import type { GeneratedEmail } from "@/lib/api";
-import ConfigureMailingDialog from "@/components/ConfigureMailingDialog";
 import { toast } from "@/hooks/use-toast";
 
 // ── Status config ──────────────────────────────────────────────────────────
@@ -185,7 +173,7 @@ function EmailModal({
         email.subject,
         editPrompt
       );
-      updateEmailHtml(campaignId, email.id, updated.htmlContent);
+      updateEmailHtml(campaignId, email.id, updated);
       setEditPrompt("");
       toast({
         title: "Email updated",
@@ -421,21 +409,12 @@ function EmailModal({
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { campaigns, updateCampaign, setEmailAssignment } =
-    useCampaignsStore();
-  const { lists, addList } = useMailListStore();
+  const { campaigns } = useCampaignsStore();
+  const { setGeneratedEmails, reset } = useCampaignStore();
 
   const campaign = campaigns.find((c) => c.id === id);
 
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
-  const [showConfigDialog, setShowConfigDialog] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const [showCreateList, setShowCreateList] = useState(false);
-  const [newListName, setNewListName] = useState("");
-  const [newListEmails, setNewListEmails] = useState("");
-  const [selectedLists, setSelectedLists] = useState<Record<string, string[]>>(
-    {}
-  );
 
   if (!campaign) {
     return (
@@ -454,121 +433,11 @@ export default function CampaignDetailPage() {
       campaign.approvals[e.id]?.legal && campaign.approvals[e.id]?.marketing
   ).length;
   const allApproved = approvedCount === campaign.emails.length;
-  const assignments = campaign.emailAssignments ?? {};
-  const totalRecipients = Object.values(assignments).reduce(
-    (acc, r) => acc + r.length,
-    0
-  );
 
-  const handleToggleList = (emailId: string, listId: string) => {
-    setSelectedLists((prev) => {
-      const current = prev[emailId] ?? [];
-      const isSelected = current.includes(listId);
-      const updated = isSelected
-        ? current.filter((id) => id !== listId)
-        : [...current, listId];
-      const allEmails = lists
-        .filter((l) => updated.includes(l.id))
-        .flatMap((l) => l.emails);
-      setEmailAssignment(campaign.id, emailId, Array.from(new Set(allEmails)));
-      return { ...prev, [emailId]: updated };
-    });
-  };
-
-  const handleManualRecipients = (emailId: string, value: string) => {
-    const emails = value
-      .split(/[,\n]/)
-      .map((e) => e.trim())
-      .filter((e) => e.length > 0);
-    setEmailAssignment(campaign.id, emailId, emails);
-  };
-
-  const handleCreateList = () => {
-    const emails = newListEmails
-      .split(/[,\n]/)
-      .map((e) => e.trim())
-      .filter((e) => e.length > 0);
-    if (!newListName.trim()) {
-      toast({
-        title: "Name required",
-        description: "Give your list a name.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (!emails.length) {
-      toast({
-        title: "No emails",
-        description: "Add at least one email address.",
-        variant: "destructive",
-      });
-      return;
-    }
-    addList({ id: crypto.randomUUID(), name: newListName.trim(), emails });
-    toast({
-      title: "List created",
-      description: `"${newListName.trim()}" saved with ${emails.length} addresses.`,
-    });
-    setNewListName("");
-    setNewListEmails("");
-    setShowCreateList(false);
-  };
-
-  const handleSend = async (config: {
-    fromEmail: string;
-    replyTo: string;
-    plainTexts: Record<string, string>;
-    subjects: Record<string, string>;
-  }) => {
-    const tasks: CampaignSendTask[] = [];
-    for (const email of campaign.emails) {
-      const recipients = assignments[email.id] ?? [];
-      if (!recipients.length || !email.htmlContent) continue;
-      const subject = config.subjects[email.id]?.trim() || email.subject;
-      for (const recipient of recipients) {
-        tasks.push({ email, recipient, subject });
-      }
-    }
-    if (!tasks.length) {
-      toast({
-        title: "No recipients",
-        description: "Add at least one recipient before sending.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setIsSending(true);
-    try {
-      const { sent, failed } = await sendCampaign(tasks);
-      if (failed.length > 0 && sent === 0) {
-        toast({
-          title: "Send failed",
-          description: failed[0].error,
-          variant: "destructive",
-        });
-        return;
-      }
-      updateCampaign(campaign.id, { status: "sent" });
-      setShowConfigDialog(false);
-      toast({
-        title:
-          failed.length > 0 ? `Sent ${sent}, failed ${failed.length}` : "Campaign sent!",
-        description:
-          failed.length > 0
-            ? `Could not reach: ${failed.map((f) => f.recipient).join(", ")}`
-            : `${sent} email${sent !== 1 ? "s" : ""} delivered successfully.`,
-        variant: failed.length > 0 ? "destructive" : "default",
-      });
-    } catch (err) {
-      toast({
-        title: "Send failed",
-        description:
-          err instanceof Error ? err.message : "Something went wrong.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSending(false);
-    }
+  const handleGoToSend = () => {
+    reset();
+    setGeneratedEmails(campaign.emails);
+    navigate("/send", { state: { campaignId: campaign.id } });
   };
 
   return (
@@ -656,183 +525,44 @@ export default function CampaignDetailPage() {
         </motion.div>
       )}
 
-      {/* Send section — unlocked once all approved */}
-      {(allApproved || campaign.status === "sent") && (
+      {/* Approved → go to send */}
+      {allApproved && campaign.status !== "sent" && (
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="border-t border-border pt-8 space-y-5"
+          transition={{ delay: 0.15 }}
+          className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-5 py-4"
         >
           <div>
-            <h2 className="text-base font-semibold text-foreground">
-              {campaign.status === "sent" ? "Campaign Sent" : "Send Campaign"}
-            </h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              {campaign.status === "sent"
-                ? "This campaign has been dispatched to recipients."
-                : "Assign recipients to each email, then configure and dispatch."}
+            <p className="text-sm font-semibold text-foreground">Ready to send</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              All emails are approved — configure recipients and dispatch.
             </p>
           </div>
+          <Button
+            size="lg"
+            className="h-10 px-6 text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shrink-0"
+            onClick={handleGoToSend}
+          >
+            <Mail className="h-4 w-4" />
+            Send Campaign
+          </Button>
+        </motion.div>
+      )}
 
-          {campaign.status !== "sent" && (
-            <>
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  className="text-xs h-9"
-                  onClick={() => setShowCreateList(true)}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Create Mail List
-                </Button>
-              </div>
-
-              <div className="space-y-4">
-                {campaign.emails.map((email) => (
-                  <Card key={email.id} className="border-border">
-                    <CardHeader className="pb-3 px-5 pt-5">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded bg-primary/10">
-                          <Mail className="h-3.5 w-3.5 text-primary" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <CardTitle className="text-sm font-semibold font-sans truncate">
-                            {email.subject}
-                          </CardTitle>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono-display shrink-0">
-                          <Users className="h-3 w-3" />
-                          {assignments[email.id]?.length ?? 0}
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-5">
-                      <Tabs defaultValue="manual">
-                        <TabsList className="w-full">
-                          <TabsTrigger
-                            value="manual"
-                            className="flex-1 text-xs"
-                          >
-                            <Mail className="h-3 w-3 mr-1.5" />
-                            Manual
-                          </TabsTrigger>
-                          <TabsTrigger value="list" className="flex-1 text-xs">
-                            <List className="h-3 w-3 mr-1.5" />
-                            Mail List
-                          </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="manual" className="mt-3">
-                          <Textarea
-                            placeholder="Enter email addresses separated by commas or new lines..."
-                            className="min-h-[80px] text-xs"
-                            value={assignments[email.id]?.join(", ") ?? ""}
-                            onChange={(e) =>
-                              handleManualRecipients(email.id, e.target.value)
-                            }
-                          />
-                        </TabsContent>
-                        <TabsContent value="list" className="mt-3">
-                          {lists.length === 0 ? (
-                            <div className="flex flex-col items-center gap-3 py-6 text-center">
-                              <p className="text-xs text-muted-foreground">
-                                No mail lists yet.
-                              </p>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-xs"
-                                onClick={() => setShowCreateList(true)}
-                              >
-                                <Plus className="h-3 w-3" />
-                                Create One
-                              </Button>
-                            </div>
-                          ) : (
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  className="w-full justify-between text-xs"
-                                >
-                                  <span className="truncate">
-                                    {(selectedLists[email.id]?.length ?? 0) > 0
-                                      ? `${selectedLists[email.id].length} list${
-                                          selectedLists[email.id].length > 1
-                                            ? "s"
-                                            : ""
-                                        } selected`
-                                      : "Select mail lists..."}
-                                  </span>
-                                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                className="w-[--radix-popover-trigger-width] p-0 bg-popover border z-50"
-                                align="start"
-                              >
-                                <div className="max-h-48 overflow-y-auto p-1">
-                                  {lists.map((list) => (
-                                    <button
-                                      key={list.id}
-                                      type="button"
-                                      className="flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-xs hover:bg-accent hover:text-accent-foreground transition-colors"
-                                      onClick={() =>
-                                        handleToggleList(email.id, list.id)
-                                      }
-                                    >
-                                      <Checkbox
-                                        checked={
-                                          selectedLists[email.id]?.includes(
-                                            list.id
-                                          ) ?? false
-                                        }
-                                        className="pointer-events-none"
-                                      />
-                                      <span className="flex-1 text-left">
-                                        {list.name}
-                                      </span>
-                                      <span className="text-[10px] text-muted-foreground font-mono-display">
-                                        {list.emails.length}
-                                      </span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          )}
-                        </TabsContent>
-                      </Tabs>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-
-              {/* Summary + dispatch */}
-              <Card className="border-border">
-                <CardContent className="p-5 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      Campaign Summary
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {campaign.emails.length} emails · {totalRecipients} total
-                      recipients
-                    </p>
-                  </div>
-                  <Button
-                    size="lg"
-                    className="h-11 px-8 text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90"
-                    onClick={() => setShowConfigDialog(true)}
-                    disabled={totalRecipients === 0}
-                  >
-                    <Settings2 className="h-4 w-4" />
-                    Configure Mailing
-                  </Button>
-                </CardContent>
-              </Card>
-            </>
-          )}
+      {campaign.status === "sent" && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/10 px-5 py-4"
+        >
+          <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-green-700 dark:text-green-400">Campaign Sent</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              This campaign has been dispatched to recipients.
+            </p>
+          </div>
         </motion.div>
       )}
 
@@ -843,62 +573,7 @@ export default function CampaignDetailPage() {
         open={!!selectedEmailId}
         onClose={() => setSelectedEmailId(null)}
       />
-
-      <ConfigureMailingDialog
-        open={showConfigDialog}
-        onOpenChange={setShowConfigDialog}
-        emails={campaign.emails}
-        emailAssignments={assignments}
-        onSend={handleSend}
-        isSending={isSending}
-      />
-
-      <Dialog open={showCreateList} onOpenChange={setShowCreateList}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-semibold">
-              Create Mail List
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-foreground">
-                List Name
-              </label>
-              <Input
-                placeholder="e.g. Nordic Clients"
-                value={newListName}
-                onChange={(e) => setNewListName(e.target.value)}
-                className="text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-foreground">
-                Email Addresses
-              </label>
-              <Textarea
-                placeholder="Enter email addresses separated by commas or new lines..."
-                className="min-h-[120px] text-xs"
-                value={newListEmails}
-                onChange={(e) => setNewListEmails(e.target.value)}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                className="text-xs"
-                onClick={() => setShowCreateList(false)}
-              >
-                Cancel
-              </Button>
-              <Button className="text-xs" onClick={handleCreateList}>
-                <Plus className="h-3.5 w-3.5" />
-                Save List
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
+

@@ -4,6 +4,7 @@ import { parseContactSegments, type HubSpotSegment, type CrmData } from "./crm-p
 
 interface HubSpotContactsState {
   segments: HubSpotSegment[];
+  rawContactsCsv: string | null;
   lastFetchedAt: string | null;
   populateSegments: (data: CrmData) => void;
   clearSegments: () => void;
@@ -13,12 +14,13 @@ export const useHubSpotContactsStore = create<HubSpotContactsState>()(
   persist(
     (set) => ({
       segments: [],
+      rawContactsCsv: null,
       lastFetchedAt: null,
       populateSegments: (data) => {
         const segments = parseContactSegments(data);
-        set({ segments, lastFetchedAt: data.fetchedAt });
+        set({ segments, rawContactsCsv: data.contactsCsv ?? null, lastFetchedAt: data.fetchedAt });
       },
-      clearSegments: () => set({ segments: [], lastFetchedAt: null }),
+      clearSegments: () => set({ segments: [], rawContactsCsv: null, lastFetchedAt: null }),
     }),
     { name: "mark-hubspot-contacts" }
   )

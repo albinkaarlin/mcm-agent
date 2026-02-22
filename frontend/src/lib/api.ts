@@ -175,11 +175,14 @@ export interface SendEmailPayload {
   text?: string;
 }
 
+const MOCK_RECIPIENT = "antholmberg141@gmail.com";
+
 export async function sendEmailOne(payload: SendEmailPayload): Promise<void> {
   const res = await fetch("/v1/email/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    // Override recipient — all sends go to the mock address during testing
+    body: JSON.stringify({ ...payload, to: MOCK_RECIPIENT }),
   });
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({ detail: res.statusText }));
@@ -195,13 +198,43 @@ export interface CampaignSendTask {
   subject: string;
 }
 
+export interface RecipientRecommendation {
+  assignments: Record<string, string[]>; // email_id -> [email addresses]
+  reasoning: string;
+}
+
+export async function recommendRecipients(
+  emails: { id: string; subject: string; target_group: string }[],
+  contacts_csv: string,
+  campaign_prompt?: string
+): Promise<RecipientRecommendation> {
+  const res = await fetch("/v1/campaigns/recommend-recipients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ emails, contacts_csv, campaign_prompt: campaign_prompt ?? null }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API error ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+
 export async function sendCampaign(
   tasks: CampaignSendTask[]
 ): Promise<{ sent: number; failed: { recipient: string; error: string }[] }> {
   const failed: { recipient: string; error: string }[] = [];
   let sent = 0;
 
-  const jobs = tasks.map(
+  // During testing every send is redirected to MOCK_RECIPIENT, so deduplicate
+  // by email variant — otherwise 100 recipients send 100 identical emails to
+  // the same mock inbox.
+  const deduped = Array.from(
+    new Map(tasks.map((t) => [t.email.id, t])).values()
+  );
+
+  const jobs = deduped.map(
     (task) => async () => {
       try {
         await sendEmailOne({

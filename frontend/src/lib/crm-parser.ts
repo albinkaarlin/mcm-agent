@@ -105,6 +105,65 @@ export function parseContactSegments(data: CrmData): HubSpotSegment[] {
     "hs_city"
   );
 
+  // Age-bracket segments
+  const AGE_BRACKETS: { label: string; min: number; max: number }[] = [
+    { label: "Under 30",  min: 0,  max: 29 },
+    { label: "30–45",     min: 30, max: 45 },
+    { label: "Over 45",   min: 46, max: Infinity },
+  ];
+  const ageGroups = new Map<string, string[]>();
+  for (const c of withEmail) {
+    const age = parseInt(c.age?.trim() ?? "", 10);
+    if (isNaN(age)) continue;
+    for (const b of AGE_BRACKETS) {
+      if (age >= b.min && age <= b.max) {
+        const arr = ageGroups.get(b.label) ?? [];
+        arr.push(c.email.trim());
+        ageGroups.set(b.label, arr);
+        break;
+      }
+    }
+  }
+  if (ageGroups.size >= 2) {
+    for (const [label, emails] of ageGroups) {
+      segments.push({
+        id: `hs_age_${label.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+        name: `Age: ${label}`,
+        filterLabel: `age ${label} · ${emails.length} contact${emails.length !== 1 ? "s" : ""}`,
+        emails,
+      });
+    }
+  }
+
+  // Membership seniority segments
+  const now = new Date();
+  const seniorityGroups: Record<string, string[]> = {
+    "New Members (<1 yr)": [],
+    "Growing (1–2 yrs)": [],
+    "Loyal (2+ yrs)": [],
+  };
+  for (const c of withEmail) {
+    const dateStr = c.membership_startdate?.trim();
+    if (!dateStr) continue;
+    const start = new Date(dateStr);
+    if (isNaN(start.getTime())) continue;
+    const diffYears = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    if (diffYears < 1)      seniorityGroups["New Members (<1 yr)"].push(c.email.trim());
+    else if (diffYears < 2) seniorityGroups["Growing (1–2 yrs)"].push(c.email.trim());
+    else                    seniorityGroups["Loyal (2+ yrs)"].push(c.email.trim());
+  }
+  const nonEmptySeniority = Object.entries(seniorityGroups).filter(([, e]) => e.length > 0);
+  if (nonEmptySeniority.length >= 2) {
+    for (const [label, emails] of nonEmptySeniority) {
+      segments.push({
+        id: `hs_seniority_${label.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+        name: label,
+        filterLabel: `membership seniority · ${emails.length} contact${emails.length !== 1 ? "s" : ""}`,
+        emails,
+      });
+    }
+  }
+
   return segments;
 }
 
@@ -207,7 +266,17 @@ export function parseCrmData(data: CrmData): Partial<BrandConfig> {
   // hs_logo_url (native HubSpot field) takes priority over LOGO_URL in description
   const logoUrl = first.hs_logo_url || desc.LOGO_URL;
   if (logoUrl) tokens.logoUrl = logoUrl;
-  if (Object.keys(tokens).length > 0) partial.designTokens = tokens as BrandConfig["designTokens"];
+
+  if (Object.keys(tokens).length > 0) {
+    // Disable auto-design since we have real brand tokens from HubSpot
+    tokens.autoDesign = false;
+    partial.designTokens = tokens as BrandConfig["designTokens"];
+  }
+
+  // domain can serve as a website reference — store in legalFooter if nothing else is set
+  if (!partial.legalFooter && first.domain) {
+    partial.legalFooter = `© ${new Date().getFullYear()} ${partial.brandName ?? first.domain}. All rights reserved.`;
+  }
 
   return partial;
 }
