@@ -1,4 +1,4 @@
-# <img src="./mark logo.png" width="20"/> Mark – Multichannel Marketing AI Agent
+# <img src="./mark logo.png" width="20"/> Mark – Campaigns, Built From Your Data
 
 <p align="center">
   <img src="./markhomepage.png" alt="Mark Homepage" width="100%" />
@@ -13,7 +13,7 @@
 
 # 🧠 What is Mark?
 
-**Mark** is a multichannel marketing AI agent that connects to your **Customer Relationship Management (CRM)** system and generates complete, production-ready marketing campaigns from structured prompts.
+**Mark** is a marketing AI agent that connects to your **Customer Relationship Management (CRM)** system and generates complete, production-ready marketing campaigns from structured prompts.
 
 Instead of manually drafting strategy, segmentation, messaging, and structure — Mark does it for you.
 
