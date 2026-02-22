@@ -7,9 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useCampaignStore } from "@/lib/campaign-store";
-import { useNavigate } from "react-router-dom";
+import { useCampaignsStore } from "@/lib/campaigns-list-store";
 import { editEmail } from "@/lib/api";
-import type { GeneratedEmail } from "@/lib/mock-api";
+import { useNavigate } from "react-router-dom";
+import { toast } from "@/hooks/use-toast";
+import type { GeneratedEmail } from "@/lib/api";
 
 function EmailPreviewCard({
   email,
@@ -196,8 +198,10 @@ export function EmailEditorModal({
 
 export default function ReviewPage() {
   const navigate = useNavigate();
-  const { generatedEmails, setStep, updateEmailHtml } = useCampaignStore();
+  const { generatedEmails, prompt, setStep, updateEmailHtml } = useCampaignStore();
+  const { addCampaign } = useCampaignsStore();
   const [selectedEmail, setSelectedEmail] = useState<GeneratedEmail | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleEmailSaved = (emailId: string, newHtml: string) => {
     // 1. Persist into Zustand so SendPage uses the edited HTML.
@@ -210,13 +214,29 @@ export default function ReviewPage() {
   };
 
   if (generatedEmails.length === 0) {
-    navigate("/");
+    navigate("/create");
     return null;
   }
 
-  const handleContinue = () => {
-    setStep(2);
-    navigate("/send");
+  const handleSave = () => {
+    setIsSaving(true);
+    const id = crypto.randomUUID();
+    // Derive a campaign name from the first ~60 chars of the prompt
+    const name =
+      prompt.trim().slice(0, 60).trim() +
+      (prompt.trim().length > 60 ? "…" : "");
+      addCampaign({
+      id,
+      name: name || "Untitled Campaign",
+      status: "draft",
+      createdAt: new Date().toISOString(),
+      prompt: prompt.trim(),
+      emails: generatedEmails,
+      approvals: {},
+      emailAssignments: {},
+    });
+    setStep(1);
+    navigate(`/campaigns/${id}`);
   };
 
   return (
@@ -255,10 +275,20 @@ export default function ReviewPage() {
         <Button
           size="lg"
           className="h-11 px-8 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={handleContinue}
+          onClick={handleSave}
+          disabled={isSaving}
         >
-          Continue to Send
-          <ArrowRight className="h-4 w-4" />
+          {isSaving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Saving…
+            </>
+          ) : (
+            <>
+              Save Campaign
+              <ArrowRight className="h-4 w-4" />
+            </>
+          )}
         </Button>
       </motion.div>
 

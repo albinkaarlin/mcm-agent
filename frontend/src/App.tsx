@@ -7,7 +7,9 @@ import { AppLayout } from "@/components/AppLayout";
 import Index from "@/pages/Index";
 import CreatePage from "@/pages/CreatePage";
 import ReviewPage from "@/pages/ReviewPage";
-import SendPage from "@/pages/SendPage";
+import CampaignsPage from "@/pages/CampaignsPage";
+import CampaignDetailPage from "@/pages/CampaignDetailPage";
+import BrandPage from "@/pages/BrandPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -21,9 +23,11 @@ const App = () => (
         <AppLayout>
           <Routes>
             <Route path="/" element={<Index />} />
+            <Route path="/campaigns" element={<CampaignsPage />} />
+            <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
             <Route path="/create" element={<CreatePage />} />
             <Route path="/review" element={<ReviewPage />} />
-            <Route path="/send" element={<SendPage />} />
+            <Route path="/brand" element={<BrandPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>

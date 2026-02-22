@@ -301,7 +301,7 @@ async def edit_email(
             system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
             json_schema=prompting.HTML_OUTPUT_SCHEMA,
             temperature=0.3,
-            max_output_tokens=8192,
+            max_output_tokens=32768,
         )
     except Exception as exc:
         logger.exception("Edit email failed", extra={"request_id": request_id})
