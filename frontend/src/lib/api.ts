@@ -75,12 +75,17 @@ export async function generateCampaign(request: CampaignRequest): Promise<Campai
   };
 }
 
+/**
+ * Ask the AI to regenerate a single email's HTML based on user instructions.
+ * Returns only the updated HTML string; every other field (subject, summary)
+ * is preserved by the caller.
+ */
 export async function editEmail(
   emailId: string,
   currentHtml: string,
   subject: string,
   instructions: string
-): Promise<GeneratedEmail> {
+): Promise<string> {
   const res = await fetch("/v1/campaigns/edit-email", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -98,7 +103,11 @@ export async function editEmail(
   }
 
   const data = await res.json();
-  return mapEmail(data.email);
+  // Backend returns { email: { html_content, ... } }; we only need the HTML.
+  const html: string =
+    data?.email?.html_content ?? data?.email?.htmlContent ?? "";
+  if (!html) throw new Error("Edit returned empty HTML");
+  return html;
 }
 
 // ── Email send helpers ───────────────────────────────────────────────────────
