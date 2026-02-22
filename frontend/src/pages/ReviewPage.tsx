@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Sparkles, Pencil } from "lucide-react";
+import { ArrowRight, Sparkles, Pencil, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useCampaignStore } from "@/lib/campaign-store";
+import { useCampaignsStore } from "@/lib/campaigns-list-store";
+import { editEmail } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
-import type { GeneratedEmail } from "@/lib/mock-api";
+import { toast } from "@/hooks/use-toast";
+import type { GeneratedEmail } from "@/lib/api";
 
 function EmailPreviewCard({
   email,
@@ -58,18 +61,44 @@ function EmailEditorModal({
   email,
   open,
   onClose,
+  onHtmlUpdated,
 }: {
   email: GeneratedEmail | null;
   open: boolean;
   onClose: () => void;
+  onHtmlUpdated: (id: string, html: string) => void;
 }) {
   const [editPrompt, setEditPrompt] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
 
   if (!email) return null;
 
-  const handleSubmitEdit = () => {
-    console.log("Edit request for email", email.id, ":", editPrompt);
-    setEditPrompt("");
+  const handleSubmitEdit = async () => {
+    if (!editPrompt.trim()) return;
+    setIsEditing(true);
+    try {
+      const updated = await editEmail(
+        email.id,
+        email.htmlContent,
+        email.subject,
+        editPrompt
+      );
+      onHtmlUpdated(email.id, updated.htmlContent);
+      setEditPrompt("");
+      toast({
+        title: "Email updated",
+        description: "Changes applied successfully.",
+      });
+    } catch (err) {
+      toast({
+        title: "Edit failed",
+        description:
+          err instanceof Error ? err.message : "Something went wrong.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsEditing(false);
+    }
   };
 
   return (
@@ -134,11 +163,20 @@ function EmailEditorModal({
                   <Button
                     size="sm"
                     onClick={handleSubmitEdit}
-                    disabled={!editPrompt.trim()}
+                    disabled={!editPrompt.trim() || isEditing}
                     className="w-full"
                   >
-                    <Sparkles className="h-3.5 w-3.5 mr-1" />
-                    Apply Changes
+                    {isEditing ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Updating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-3.5 w-3.5 mr-1" />
+                        Apply Changes
+                      </>
+                    )}
                   </Button>
                 </div>
               </TabsContent>
@@ -152,17 +190,35 @@ function EmailEditorModal({
 
 export default function ReviewPage() {
   const navigate = useNavigate();
-  const { generatedEmails, setStep } = useCampaignStore();
+  const { generatedEmails, prompt, setStep, updateEmailHtml } = useCampaignStore();
+  const { addCampaign } = useCampaignsStore();
   const [selectedEmail, setSelectedEmail] = useState<GeneratedEmail | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   if (generatedEmails.length === 0) {
-    navigate("/");
+    navigate("/create");
     return null;
   }
 
-  const handleContinue = () => {
-    setStep(2);
-    navigate("/send");
+  const handleSave = () => {
+    setIsSaving(true);
+    const id = crypto.randomUUID();
+    // Derive a campaign name from the first ~60 chars of the prompt
+    const name =
+      prompt.trim().slice(0, 60).trim() +
+      (prompt.trim().length > 60 ? "…" : "");
+    addCampaign({
+      id,
+      name: name || "Untitled Campaign",
+      status: "draft",
+      createdAt: new Date().toISOString(),
+      prompt: prompt.trim(),
+      emails: generatedEmails,
+      approvals: {},
+      emailAssignments: {},
+    });
+    setStep(1);
+    navigate(`/campaigns/${id}`);
   };
 
   return (
@@ -201,10 +257,20 @@ export default function ReviewPage() {
         <Button
           size="lg"
           className="h-11 px-8 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={handleContinue}
+          onClick={handleSave}
+          disabled={isSaving}
         >
-          Continue to Send
-          <ArrowRight className="h-4 w-4" />
+          {isSaving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Saving…
+            </>
+          ) : (
+            <>
+              Save Campaign
+              <ArrowRight className="h-4 w-4" />
+            </>
+          )}
         </Button>
       </motion.div>
 
@@ -212,6 +278,13 @@ export default function ReviewPage() {
         email={selectedEmail}
         open={!!selectedEmail}
         onClose={() => setSelectedEmail(null)}
+        onHtmlUpdated={(id, html) => {
+          updateEmailHtml(id, html);
+          // Refresh selected email reference
+          setSelectedEmail((prev) =>
+            prev?.id === id ? { ...prev, htmlContent: html } : prev
+          );
+        }}
       />
     </div>
   );
