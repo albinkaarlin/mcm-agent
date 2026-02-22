@@ -202,6 +202,65 @@ def _phase_rapid_batch(
         )
 
     return assets
+def _extract_html(raw: str) -> str:
+    """Strip fences/prose and return the first complete HTML document found."""
+    import json as _json
+
+    text = raw.strip()
+    # 1. Strip markdown code fences
+    for fence in ("```html", "```json", "```"):
+        if text.startswith(fence):
+            text = text[len(fence):].lstrip("\n")
+            break
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+    text = text.strip()
+
+    # 2. If the model wrapped the HTML inside a JSON object (e.g. {"email_html": "..."}),
+    #    parse it and extract the first string value that looks like HTML.
+    if text.startswith("{"):
+        try:
+            obj = _json.loads(text)
+            if isinstance(obj, dict):
+                for val in obj.values():
+                    if isinstance(val, str) and ("<html" in val.lower() or "<!doctype" in val.lower()):
+                        text = val  # already unescaped by json.loads
+                        break
+        except (_json.JSONDecodeError, ValueError):
+            # json.loads failed (e.g. unescaped char inside the HTML string).
+            # Try a JSON-string-aware regex to extract the email_html value directly.
+            html_val_match = re.search(
+                r'"email_html"\s*:\s*"((?:[^"\\]|\\.)*)',
+                text,
+                re.DOTALL,
+            )
+            if html_val_match:
+                raw_val = html_val_match.group(1)
+                # Strip trailing " that closed the string (regex is non-greedy, may include it)
+                if raw_val.endswith('"'):
+                    raw_val = raw_val[:-1]
+                try:
+                    text = _json.loads('"' + raw_val + '"')
+                except _json.JSONDecodeError:
+                    text = (
+                        raw_val
+                        .replace('\\"', '"')
+                        .replace('\\n', '\n')
+                        .replace('\\r', '\r')
+                        .replace('\\t', '\t')
+                        .replace('\\\\', '\\')
+                    )
+
+    # 3. Try DOCTYPE-anchored match
+    m = re.search(r"(<!DOCTYPE\s+html[\s\S]*?</html>)", text, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # 4. Try plain <html>...</html>
+    m2 = re.search(r"(<html[\s\S]*?</html>)", text, re.IGNORECASE)
+    if m2:
+        return m2.group(1)
+    # 5. Last resort: return whatever we have after fence stripping
+    return text
 
 
 # ── External Research Stub Interface ─────────────────────────────────────────-
@@ -415,24 +474,31 @@ def _phase_production(
         result = client.generate_text(
             prompt=prompt,
             system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
-            json_schema=None,  # Raw HTML – no JSON wrapper
+            json_schema=prompting.HTML_OUTPUT_SCHEMA,
             temperature=0.2,
             max_output_tokens=8192,
         )
-        # Extract HTML robustly — Gemini sometimes prepends prose before the fence
-        html_text: str = result.get("text", "").strip()
+        raw_text = result.get("text", "")
+        html_text = (result.get("parsed") or {}).get("email_html") or _extract_html(raw_text)
+        logger.info(
+            "[HTML step 1/3] Gemini raw response for email %d — length=%d, "
+            "has_real_newlines=%s, has_literal_backslash_n=%s, first 300 chars: %s",
+            asset.email_number,
+            len(raw_text),
+            repr("\n" in raw_text),
+            repr("\\n" in raw_text),
+            repr(raw_text[:300]),
+        )
 
-        # Try to find a <!DOCTYPE html>...</html> block anywhere in the response
-        match = re.search(r"(<!DOCTYPE\s+html[\s\S]*</html>)", html_text, re.IGNORECASE)
-        if match:
-            html_text = match.group(1).strip()
-        else:
-            # Fallback: strip markdown fences if present
-            for fence in ("```html", "```"):
-                if html_text.startswith(fence):
-                    html_text = html_text[len(fence):].strip()
-            if html_text.endswith("```"):
-                html_text = html_text[:-3].strip()
+        html_text = (result.get("parsed") or {}).get("email_html") or _extract_html(raw_text)
+        logger.info(
+            "[HTML step 2/3] Resolved html for email %d — length=%d, "
+            "source=%s, first 120 chars: %s",
+            asset.email_number,
+            len(html_text),
+            "parsed" if (result.get("parsed") or {}).get("email_html") else "fallback_extract",
+            repr(html_text[:120]),
+        )
 
         if not html_text:
             logger.warning("Phase 5 returned empty HTML for email %d", asset.email_number)
