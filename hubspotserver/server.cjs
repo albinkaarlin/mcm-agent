@@ -5,96 +5,116 @@ const axios = require('axios');
 
 const app = express();
 
-// Backend port (where this server runs)
 const PORT = process.env.PORT || 3000;
-
-// HubSpot app credentials from .env
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
-
-// This MUST match the redirect URL configured in your HubSpot app
 const REDIRECT_URI = `http://localhost:${PORT}/oauth/callback`;
-
-// Scopes you request from HubSpot
-// Exakt de tre som är obligatoriska i er app:
-const SCOPES =
-  'crm.objects.companies.read crm.objects.contacts.read oauth';
-
-// Frontend URL (React dev server)
+const SCOPES = 'crm.objects.companies.read crm.objects.contacts.read oauth';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
-// Debug logs (can remove later)
 console.log('CLIENT_ID:', CLIENT_ID ? 'loaded ✅' : 'MISSING ❌');
 console.log('CLIENT_SECRET:', CLIENT_SECRET ? 'loaded ✅' : 'MISSING ❌');
-console.log('REDIRECT_URI:', REDIRECT_URI);
-console.log('FRONTEND_URL:', FRONTEND_URL);
-console.log('SCOPES:', SCOPES);
 
-// 1. Start OAuth – your React app redirects the user here
+// ── In-memory state ──────────────────────────────────────────────────────────
+let latestCrmData = null;
+let latestAccessToken = null;
+
+// ── Helper: fetch & store CRM data for a given token ─────────────────────────
+async function refreshCrmData(token) {
+  const [contacts, companies] = await Promise.all([
+    fetchContacts(token),
+    fetchCompanies(token),
+  ]);
+  console.log(`Fetched ${contacts.length} contacts, ${companies.length} companies`);
+  latestCrmData = {
+    fetchedAt: new Date().toISOString(),
+    contactsCount: contacts.length,
+    companiesCount: companies.length,
+    contactsCsv: buildContactsCsv(contacts),
+    companiesCsv: buildCompaniesCsv(companies),
+  };
+  return latestCrmData;
+}
+
+// ── CORS for local frontend ────────────────────────────────────────────────
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', FRONTEND_URL);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
+// ── 1. Start OAuth ─────────────────────────────────────────────────────────
 app.get('/auth/hubspot', (req, res) => {
   const authUrl =
     'https://app.hubspot.com/oauth/authorize' +
     `?client_id=${encodeURIComponent(CLIENT_ID)}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
     `&scope=${encodeURIComponent(SCOPES)}`;
-
   return res.redirect(authUrl);
 });
 
-// 2. Callback – HubSpot sends the user back here with ?code=...
+// ── 2. OAuth callback ──────────────────────────────────────────────────────
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
-
-  if (!code) {
-    console.error('Missing code from HubSpot');
-    // Redirect back so frontend can show a toast
-    return res.redirect(`${FRONTEND_URL}/?error=missing_code`);
-  }
+  if (!code) return res.redirect(`${FRONTEND_URL}/?error=missing_code`);
 
   try {
-    // Exchange code for access token
     const tokenResponse = await axios.post(
       'https://api.hubapi.com/oauth/v1/token',
       new URLSearchParams({
         grant_type: 'authorization_code',
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI, // must match HubSpot app setting
-        code: code,
+        redirect_uri: REDIRECT_URI,
+        code,
       }).toString(),
-      {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      }
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
 
-    const accessToken = tokenResponse.data.access_token;
+    latestAccessToken = tokenResponse.data.access_token;
     console.log('Got access token ✅');
 
-    // Example: fetch contacts (optional for now)
-    const contacts = await fetchContacts(accessToken);
-    console.log('Fetched contacts:', contacts.length);
+    await refreshCrmData(latestAccessToken);
 
-    // ✅ Success – send user back to frontend, e.g. /create
-    return res.redirect(`${FRONTEND_URL}/create?connected=1`);
+    // Redirect to / so Index.tsx can handle the callback and fetch CRM data
+    return res.redirect(`${FRONTEND_URL}/?connected=1`);
   } catch (error) {
-    console.error(
-      'OAuth error:',
-      error.response?.data || error.message || error
-    );
-
-    // On error, redirect back so frontend can show an error toast
+    console.error('OAuth error:', error.response?.data || error.message);
     return res.redirect(`${FRONTEND_URL}/?error=oauth_failed`);
   }
 });
 
-// Helper to fetch contacts from HubSpot
+// ── 3. CRM data endpoint – called by frontend after successful auth ─────────
+app.get('/api/crm-data', (req, res) => {
+  if (!latestCrmData) return res.status(404).json({ error: 'No CRM data available yet' });
+  return res.json(latestCrmData);
+});
+
+// ── 4. Refresh – re-fetches CRM data using the stored token ──────────────────
+app.get('/api/refresh', async (req, res) => {
+  if (!latestAccessToken) {
+    return res.status(401).json({ error: 'Not authenticated – please reconnect HubSpot' });
+  }
+  try {
+    const data = await refreshCrmData(latestAccessToken);
+    return res.json(data);
+  } catch (error) {
+    console.error('Refresh error:', error.response?.data || error.message);
+    return res.status(502).json({ error: 'Failed to refresh CRM data' });
+  }
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
 async function fetchContacts(token) {
   const response = await axios.get(
     'https://api.hubapi.com/crm/v3/objects/contacts',
     {
       params: {
-        limit: 50,
-        properties: 'firstname,lastname,email',
+        limit: 100,
+        properties: 'firstname,lastname,email,age,membership_level,membership_startdate,city,country',
       },
       headers: { Authorization: `Bearer ${token}` },
     }
@@ -102,6 +122,46 @@ async function fetchContacts(token) {
   return response.data.results || [];
 }
 
+async function fetchCompanies(token) {
+  const response = await axios.get(
+    'https://api.hubapi.com/crm/v3/objects/companies',
+    {
+      params: {
+        limit: 10,
+        properties: 'name,domain,description,hs_logo_url',
+      },
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  return response.data.results || [];
+}
+
+function csvEscape(val) {
+  if (val == null) return '""';
+  const s = String(val);
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function buildContactsCsv(contacts) {
+  const headers = 'firstname,lastname,email,age,membership_level,membership_startdate,city,country';
+  const rows = contacts.map((c) => {
+    const p = c.properties || {};
+    return [p.firstname, p.lastname, p.email, p.age, p.membership_level, p.membership_startdate, p.city, p.country]
+      .map(csvEscape)
+      .join(',');
+  });
+  return [headers, ...rows].join('\n');
+}
+
+function buildCompaniesCsv(companies) {
+  const headers = 'name,domain,description,hs_logo_url';
+  const rows = companies.map((c) => {
+    const p = c.properties || {};
+    return [p.name, p.domain, p.description, p.hs_logo_url].map(csvEscape).join(',');
+  });
+  return [headers, ...rows].join('\n');
+}
+
 app.listen(PORT, () => {
-  console.log(`Server körs på http://localhost:${PORT}`);
+  console.log(`HubSpot server running at http://localhost:${PORT}`);
 });
