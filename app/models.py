@@ -390,6 +390,10 @@ class RecipientRecommendRequest(BaseModel):
         ...,
         description="Raw CSV exported from HubSpot: firstname,lastname,email,age,membership_level,...",
     )
+    campaign_prompt: Optional[str] = Field(
+        default=None,
+        description="The original free-form prompt the user wrote when creating the campaign. Gives the AI full context about campaign intent.",
+    )
 
 
 class RecipientRecommendResponse(BaseModel):

@@ -495,10 +495,16 @@ async def recommend_recipients(
         for i, e in enumerate(payload.emails)
     )
 
+    campaign_context = (
+        f"CAMPAIGN PROMPT (original user intent)\n"
+        f"==========================================\n"
+        f"{payload.campaign_prompt.strip()}\n\n"
+    ) if payload.campaign_prompt else ""
+
     prompt = f"""\
 You are a CRM specialist. Your task is to assign HubSpot contacts to the most relevant email variant in a marketing campaign.
 
-EMAIL VARIANTS
+{campaign_context}EMAIL VARIANTS
 ==============
 {variants_json}
 

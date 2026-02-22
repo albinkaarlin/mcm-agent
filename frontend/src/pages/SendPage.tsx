@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Mail, Users, CheckCircle2, Settings2, Sparkles, Link2 } from "lucide-react";
 import ConfigureMailingDialog from "@/components/ConfigureMailingDialog";
@@ -12,15 +12,22 @@ import { useHubSpotContactsStore } from "@/lib/hubspot-contacts-store";
 import { useHubSpotStore } from "@/lib/hubspot-store";
 import { scoreSegment } from "@/lib/crm-parser";
 import { sendCampaign, recommendRecipients, type CampaignSendTask } from "@/lib/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCampaignsStore } from "@/lib/campaigns-list-store";
 
 export default function SendPage() {
   const navigate = useNavigate();
-  const { generatedEmails, emailAssignments, setRecipients, reset } = useCampaignStore();
+  const location = useLocation();
+  const campaignId = (location.state as { campaignId?: string } | null)?.campaignId ?? null;
+  const { generatedEmails, emailAssignments, setRecipients, reset, prompt: storePrompt } = useCampaignStore();
+  const { updateCampaign, campaigns } = useCampaignsStore();
   const { segments, rawContactsCsv } = useHubSpotContactsStore();
   const { connected } = useHubSpotStore();
+
+  // Resolve the campaign prompt — prefer the saved campaign record, fall back to the in-flight store
+  const campaignPrompt = (campaignId ? campaigns.find((c) => c.id === campaignId)?.prompt : null) ?? storePrompt ?? null;
   const [configuredFromEmail, setConfiguredFromEmail] = useState("");
 
   // Fetch the configured sender email from the backend once
@@ -50,9 +57,38 @@ export default function SendPage() {
     return result;
   }, [generatedEmails, segments]);
 
-  // Auto-apply suggested segments on first mount so recipients are pre-populated
+  // Auto-trigger AI match on first render if contacts CSV is available
+  const autoMatchRef = useRef(false);
   useEffect(() => {
-    if (segments.length === 0 || generatedEmails.length === 0) return;
+    if (autoMatchRef.current || !rawContactsCsv || generatedEmails.length === 0) return;
+    autoMatchRef.current = true;
+    setIsAiMatching(true);
+    recommendRecipients(
+      generatedEmails.map((e) => ({ id: e.id, subject: e.subject, target_group: e.summary.targetGroup })),
+      rawContactsCsv,
+      campaignPrompt ?? undefined
+    )
+      .then(({ assignments, reasoning }) => {
+        for (const [emailId, addrs] of Object.entries(assignments)) {
+          setRecipients(emailId, addrs);
+        }
+        setSelectedSegments({});
+        setAiReasoning(reasoning || null);
+      })
+      .catch((err) => {
+        toast({
+          title: "AI matching failed",
+          description: err instanceof Error ? err.message : "Could not reach the AI service.",
+          variant: "destructive",
+        });
+      })
+      .finally(() => setIsAiMatching(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawContactsCsv, generatedEmails.length]);
+
+  // Fall back to keyword-segment matching only if no CSV is available
+  useEffect(() => {
+    if (rawContactsCsv || segments.length === 0 || generatedEmails.length === 0) return;
     const next: Record<string, string[]> = {};
     let anyApplied = false;
     for (const email of generatedEmails) {
@@ -66,9 +102,8 @@ export default function SendPage() {
       anyApplied = true;
     }
     if (anyApplied) setSelectedSegments(next);
-  // Only run once on mount — suggestedSegments changes when segments/emails change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments, generatedEmails]);
+  }, [rawContactsCsv, segments, generatedEmails]);
 
   if (generatedEmails.length === 0) {
     navigate("/");
@@ -109,7 +144,7 @@ export default function SendPage() {
         subject: e.subject,
         target_group: e.summary.targetGroup,
       }));
-      const { assignments, reasoning } = await recommendRecipients(emailSpecs, rawContactsCsv);
+      const { assignments, reasoning } = await recommendRecipients(emailSpecs, rawContactsCsv, campaignPrompt ?? undefined);
       const next: Record<string, string[]> = {};
       for (const [emailId, addrs] of Object.entries(assignments)) {
         next[emailId] = addrs;
@@ -191,6 +226,7 @@ export default function SendPage() {
 
       setSent(true);
       setShowConfigDialog(false);
+      if (campaignId) updateCampaign(campaignId, { status: "sent" });
 
       if (failed.length > 0) {
         toast({
@@ -238,9 +274,15 @@ export default function SendPage() {
             {totalRecipients} emails have been queued for delivery.
           </p>
         </motion.div>
-        <Button variant="outline" onClick={() => { reset(); navigate("/"); }}>
-          Create New Campaign
-        </Button>
+        {campaignId ? (
+          <Button variant="outline" onClick={() => { reset(); navigate("/campaigns"); }}>
+            Back to Campaigns
+          </Button>
+        ) : (
+          <Button variant="outline" onClick={() => { reset(); navigate("/"); }}>
+            Create New Campaign
+          </Button>
+        )}
       </div>
     );
   }
@@ -262,8 +304,8 @@ export default function SendPage() {
         </p>
       </motion.div>
 
-      {/* AI match banner — available whenever HubSpot contacts CSV is loaded */}
-      {connected && rawContactsCsv && (
+      {/* AI match banner — visible whenever contacts CSV is loaded */}
+      {rawContactsCsv && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -273,9 +315,9 @@ export default function SendPage() {
             <Sparkles className="h-4 w-4 text-primary shrink-0" />
             <div>
               <p className="text-xs text-primary font-medium">
-                AI-powered recipient matching
+                {isAiMatching ? "Matching contacts to email variants…" : "AI-powered recipient matching"}
               </p>
-              {aiReasoning && (
+              {aiReasoning && !isAiMatching && (
                 <p className="text-[10px] text-muted-foreground mt-0.5">{aiReasoning}</p>
               )}
             </div>
@@ -287,13 +329,13 @@ export default function SendPage() {
             onClick={handleAiMatch}
             disabled={isAiMatching}
           >
-            {isAiMatching ? "Matching…" : "AI Match"}
+            {isAiMatching ? "Matching…" : "Re-match"}
           </Button>
         </motion.div>
       )}
 
-      {/* Auto-select banner */}
-      {connected && segments.length > 0 && hasSuggestions && (
+      {/* Auto-select banner — keyword segment suggestions (no CSV) */}
+      {!rawContactsCsv && segments.length > 0 && hasSuggestions && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -399,12 +441,14 @@ export default function SendPage() {
                           const isSuggested = suggestedSegments[email.id]?.has(seg.id) ?? false;
                           const isChecked = selectedSegments[email.id]?.includes(seg.id) ?? false;
                           return (
-                            <button
+                            <div
                               key={seg.id}
-                              type="button"
+                              role="button"
+                              tabIndex={0}
                               onClick={() => handleToggleSegment(email.id, seg.id)}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleToggleSegment(email.id, seg.id); } }}
                               className={[
-                                "flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-xs transition-colors text-left",
+                                "flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-xs transition-colors text-left cursor-pointer",
                                 isChecked
                                   ? "border-primary/50 bg-primary/5"
                                   : "border-border bg-card hover:bg-accent/50",
@@ -428,7 +472,7 @@ export default function SendPage() {
                                   {seg.filterLabel}
                                 </p>
                               </div>
-                            </button>
+                            </div>
                           );
                         })}
 
