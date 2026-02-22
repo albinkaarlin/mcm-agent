@@ -143,7 +143,7 @@ async function fetchCompanies(token) {
     {
       params: {
         limit: 50,
-        properties: "name,domain,description",
+        properties: "name,domain,description, domain,hs_logo_url",
       },
       headers: { Authorization: `Bearer ${token}` },
     }
