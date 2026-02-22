@@ -30,6 +30,7 @@ from app.models import (
 )
 from app.services.gemini_client import GeminiClient
 from app.services import prompting
+from app.services.hubspot import load_company_profile
 from app.services.validators import run_email_rules
 
 logger = logging.getLogger(__name__)
@@ -39,69 +40,322 @@ def _ms(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
-# ── Minimal responsive HTML email template ───────────────────────────────────
-# Used by the fast path: Gemini fills content fields; Python stitches the HTML.
+# ── HTML template variants ────────────────────────────────────────────────────
+# Mode A: Python picks a variant from layout_style; Gemini fills content fields.
+# Mode B: Only used when layout_style == "custom" — Gemini returns html_content.
+#
+# All variants share identical {placeholder} names so _render_email_html works
+# for every variant without code changes.  Inline CSS only; max-width 600px.
 
-_HTML_TEMPLATE = """\
+# ── default ──────────────────────────────────────────────────────────────────
+_TMPL_DEFAULT = """\
 <!DOCTYPE html>
 <html lang="{lang}">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>{subject}</title>
-</head>
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{subject}</title></head>
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,Helvetica,sans-serif">
 <div style="display:none;max-height:0;overflow:hidden;font-size:1px;color:#f4f4f5">{preheader}&nbsp;</div>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f4f5">
-  <tr><td align="center" style="padding:24px 12px">
-    <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0"
-           style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
-      <!-- Header -->
-      <tr><td style="background:{brand_color};padding:28px 40px;text-align:center">
-        <span style="font-size:22px;font-weight:700;color:{header_text_color}">{brand_name}</span>
-      </td></tr>
-      <!-- Body -->
-      <tr><td style="padding:40px 40px 24px">
-        <h1 style="margin:0 0 20px;font-size:28px;line-height:1.3;color:#111827">{headline}</h1>
-        <p style="margin:0 0 20px;font-size:16px;line-height:1.7;color:#374151">{intro_paragraph}</p>
-        <div style="background:#f9fafb;border-left:4px solid {brand_color};padding:14px 18px;margin:0 0 20px;border-radius:0 6px 6px 0">
-          <strong style="font-size:17px;color:#111827">{offer_line}</strong>
-        </div>
-        <ul style="margin:0 0 24px;padding-left:22px;color:#374151;font-size:16px;line-height:2">
-          {bullets_html}
-        </ul>
-        {urgency_html}
-      </td></tr>
-      <!-- CTA -->
-      <tr><td style="padding:0 40px 36px;text-align:center">
-        <a href="{cta_url}"
-           style="display:inline-block;background:{brand_color};color:#ffffff;text-decoration:none;padding:16px 44px;border-radius:6px;font-size:16px;font-weight:700"
-        >{cta_button}</a>
-      </td></tr>
-      <!-- Footer -->
-      <tr><td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb">
-        <p style="margin:0 0 6px;font-size:12px;color:#9ca3af">{footer_line}</p>
-        <p style="margin:0;font-size:11px;color:#9ca3af">
-          <a href="#" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a>&nbsp;|&nbsp;
-          <a href="#" style="color:#9ca3af;text-decoration:underline">Privacy Policy</a>
-        </p>
+<tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
+  <tr><td style="background:{brand_color};padding:28px 40px;text-align:center">
+    <span style="font-size:22px;font-weight:700;color:{header_text_color}">{brand_name}</span>
+  </td></tr>
+  <tr><td style="padding:40px 40px 24px">
+    <h1 style="margin:0 0 20px;font-size:28px;line-height:1.3;color:#111827">{headline}</h1>
+    <p style="margin:0 0 20px;font-size:16px;line-height:1.7;color:#374151">{intro_paragraph}</p>
+    <div style="background:#f9fafb;border-left:4px solid {brand_color};padding:14px 18px;margin:0 0 20px;border-radius:0 6px 6px 0">
+      <strong style="font-size:17px;color:#111827">{offer_line}</strong>
+    </div>
+    <ul style="margin:0 0 24px;padding-left:22px;color:#374151;font-size:16px;line-height:2">{bullets_html}</ul>
+    {urgency_html}
+  </td></tr>
+  <tr><td style="padding:0 40px 36px;text-align:center">
+    <a href="{cta_url}" style="display:inline-block;background:{brand_color};color:#ffffff;text-decoration:none;padding:16px 44px;border-radius:6px;font-size:16px;font-weight:700">{cta_button}</a>
+  </td></tr>
+  <tr><td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb">
+    <p style="margin:0 0 6px;font-size:12px;color:#9ca3af">{footer_line}</p>
+    <p style="margin:0;font-size:11px;color:#9ca3af">
+      <a href="#" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a>&nbsp;|&nbsp;
+      <a href="#" style="color:#9ca3af;text-decoration:underline">Privacy Policy</a>
+    </p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>"""
+
+# ── minimal ───────────────────────────────────────────────────────────────────
+_TMPL_MINIMAL = """\
+<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{subject}</title></head>
+<body style="margin:0;padding:0;background:#ffffff;font-family:Georgia,'Times New Roman',serif">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;color:#ffffff">{preheader}&nbsp;</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#ffffff">
+<tr><td align="center" style="padding:48px 24px">
+<table role="presentation" width="520" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;width:100%">
+  <tr><td style="padding-bottom:32px;text-align:center;border-bottom:1px solid #e5e7eb">
+    <span style="font-size:13px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:{brand_color}">{brand_name}</span>
+  </td></tr>
+  <tr><td style="padding:40px 0 24px">
+    <h1 style="margin:0 0 24px;font-size:32px;line-height:1.25;color:#111827;font-weight:400">{headline}</h1>
+    <p style="margin:0 0 24px;font-size:16px;line-height:1.8;color:#6b7280">{intro_paragraph}</p>
+    <p style="margin:0 0 28px;font-size:17px;line-height:1.6;color:#111827;font-style:italic">{offer_line}</p>
+    <ul style="margin:0 0 28px;padding-left:0;list-style:none;color:#374151;font-size:15px;line-height:2">{bullets_html}</ul>
+    {urgency_html}
+  </td></tr>
+  <tr><td style="padding-bottom:40px">
+    <a href="{cta_url}" style="display:inline-block;border:2px solid {brand_color};color:{brand_color};text-decoration:none;padding:14px 40px;font-size:14px;font-weight:600;letter-spacing:1px;text-transform:uppercase">{cta_button}</a>
+  </td></tr>
+  <tr><td style="padding-top:32px;border-top:1px solid #e5e7eb;text-align:center">
+    <p style="margin:0 0 6px;font-size:11px;color:#9ca3af;letter-spacing:1px">{footer_line}</p>
+    <p style="margin:0;font-size:11px;color:#9ca3af">
+      <a href="#" style="color:#9ca3af">Unsubscribe</a>&nbsp;&nbsp;·&nbsp;&nbsp;
+      <a href="#" style="color:#9ca3af">Privacy Policy</a>
+    </p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>"""
+
+# ── bold ──────────────────────────────────────────────────────────────────────
+_TMPL_BOLD = """\
+<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{subject}</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;color:#0f172a">{preheader}&nbsp;</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#0f172a">
+<tr><td align="center" style="padding:0">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%">
+  <tr><td style="background:{brand_color};padding:40px 48px 32px">
+    <p style="margin:0 0 16px;font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:{header_text_color};opacity:0.8">{brand_name}</p>
+    <h1 style="margin:0;font-size:42px;line-height:1.1;color:{header_text_color};font-weight:900">{headline}</h1>
+  </td></tr>
+  <tr><td style="background:#1e293b;padding:36px 48px">
+    <p style="margin:0 0 28px;font-size:17px;line-height:1.7;color:#cbd5e1">{intro_paragraph}</p>
+    <div style="background:{brand_color};padding:20px 24px;margin:0 0 28px;border-radius:4px">
+      <strong style="font-size:20px;color:{header_text_color};display:block">{offer_line}</strong>
+    </div>
+    <ul style="margin:0 0 28px;padding-left:20px;color:#94a3b8;font-size:16px;line-height:2">{bullets_html}</ul>
+    {urgency_html}
+  </td></tr>
+  <tr><td style="background:#0f172a;padding:32px 48px;text-align:center">
+    <a href="{cta_url}" style="display:inline-block;background:{brand_color};color:{header_text_color};text-decoration:none;padding:18px 56px;border-radius:4px;font-size:17px;font-weight:900;letter-spacing:1px;text-transform:uppercase">{cta_button}</a>
+  </td></tr>
+  <tr><td style="background:#0f172a;padding:20px 48px 32px;text-align:center;border-top:1px solid #1e293b">
+    <p style="margin:0 0 6px;font-size:11px;color:#475569">{footer_line}</p>
+    <p style="margin:0;font-size:11px;color:#475569">
+      <a href="#" style="color:#475569;text-decoration:underline">Unsubscribe</a>&nbsp;|&nbsp;
+      <a href="#" style="color:#475569;text-decoration:underline">Privacy</a>
+    </p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>"""
+
+# ── newsletter ────────────────────────────────────────────────────────────────
+_TMPL_NEWSLETTER = """\
+<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{subject}</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;color:#f1f5f9">{preheader}&nbsp;</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f1f5f9">
+<tr><td align="center" style="padding:20px 12px">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background:#ffffff">
+  <tr><td style="background:{brand_color};padding:16px 40px;text-align:center">
+    <span style="font-size:18px;font-weight:700;color:{header_text_color};letter-spacing:1px">{brand_name}</span>
+  </td></tr>
+  <tr><td style="background:#ffffff;padding:32px 40px 16px;border-bottom:2px solid {brand_color}">
+    <h1 style="margin:0;font-size:26px;line-height:1.3;color:#0f172a">{headline}</h1>
+  </td></tr>
+  <tr><td style="padding:24px 40px 8px">
+    <p style="margin:0;font-size:15px;line-height:1.7;color:#374151">{intro_paragraph}</p>
+  </td></tr>
+  <tr><td style="padding:8px 40px 8px">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+      <tr><td style="background:#f8fafc;border:1px solid #e2e8f0;padding:16px 20px">
+        <p style="margin:0 0 4px;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:{brand_color}">Featured Offer</p>
+        <p style="margin:0;font-size:16px;font-weight:700;color:#0f172a">{offer_line}</p>
       </td></tr>
     </table>
   </td></tr>
-</table>
-</body>
-</html>"""
+  <tr><td style="padding:8px 40px 16px">
+    <p style="margin:0 0 8px;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#94a3b8">Highlights</p>
+    <ul style="margin:0;padding-left:20px;color:#374151;font-size:15px;line-height:2">{bullets_html}</ul>
+  </td></tr>
+  <tr><td style="padding:0 40px 16px">{urgency_html}</td></tr>
+  <tr><td style="padding:16px 40px 32px;text-align:center">
+    <a href="{cta_url}" style="display:inline-block;background:{brand_color};color:{header_text_color};text-decoration:none;padding:14px 48px;font-size:15px;font-weight:700">{cta_button}</a>
+  </td></tr>
+  <tr><td style="background:#f8fafc;padding:20px 40px;text-align:center;border-top:1px solid #e2e8f0">
+    <p style="margin:0 0 4px;font-size:11px;color:#94a3b8">{footer_line}</p>
+    <p style="margin:0;font-size:11px;color:#94a3b8">
+      <a href="#" style="color:#94a3b8;text-decoration:underline">Unsubscribe</a>&nbsp;|&nbsp;
+      <a href="#" style="color:#94a3b8;text-decoration:underline">Privacy Policy</a>
+    </p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>"""
+
+# ── playful ───────────────────────────────────────────────────────────────────
+_TMPL_PLAYFUL = """\
+<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{subject}</title></head>
+<body style="margin:0;padding:0;background:#fdf4ff;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;color:#fdf4ff">{preheader}&nbsp;</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#fdf4ff">
+<tr><td align="center" style="padding:24px 16px">
+<table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:24px;overflow:hidden">
+  <tr><td style="background:{brand_color};padding:32px 40px;text-align:center">
+    <span style="font-size:20px;font-weight:800;color:{header_text_color}">{brand_name} 🎉</span>
+  </td></tr>
+  <tr><td style="padding:36px 40px 20px">
+    <h1 style="margin:0 0 16px;font-size:30px;line-height:1.2;color:#1e1b4b;font-weight:800">{headline}</h1>
+    <p style="margin:0 0 20px;font-size:16px;line-height:1.7;color:#6b7280">{intro_paragraph}</p>
+  </td></tr>
+  <tr><td style="padding:0 40px 20px">
+    <div style="background:#fdf4ff;border-radius:16px;padding:20px 24px">
+      <p style="margin:0;font-size:17px;font-weight:700;color:#1e1b4b">{offer_line}</p>
+    </div>
+  </td></tr>
+  <tr><td style="padding:0 40px 24px">
+    <ul style="margin:0;padding-left:0;list-style:none;color:#374151;font-size:15px;line-height:2">{bullets_html}</ul>
+    {urgency_html}
+  </td></tr>
+  <tr><td style="padding:0 40px 36px;text-align:center">
+    <a href="{cta_url}" style="display:inline-block;background:{brand_color};color:{header_text_color};text-decoration:none;padding:16px 48px;border-radius:100px;font-size:16px;font-weight:800">{cta_button} →</a>
+  </td></tr>
+  <tr><td style="background:#f5f3ff;padding:20px 40px;text-align:center;border-top:2px dashed #ddd6fe">
+    <p style="margin:0 0 4px;font-size:11px;color:#a78bfa">{footer_line}</p>
+    <p style="margin:0;font-size:11px;color:#a78bfa">
+      <a href="#" style="color:#a78bfa;text-decoration:underline">Unsubscribe</a>&nbsp;|&nbsp;
+      <a href="#" style="color:#a78bfa;text-decoration:underline">Privacy</a>
+    </p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>"""
+
+# ── premium ───────────────────────────────────────────────────────────────────
+_TMPL_PREMIUM = """\
+<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{subject}</title></head>
+<body style="margin:0;padding:0;background:#fafaf9;font-family:Georgia,'Times New Roman',Times,serif">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;color:#fafaf9">{preheader}&nbsp;</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#fafaf9">
+<tr><td align="center" style="padding:48px 24px">
+<table role="presentation" width="540" cellspacing="0" cellpadding="0" border="0" style="max-width:540px;width:100%;background:#1c1917">
+  <tr><td style="padding:40px 52px 28px;border-bottom:1px solid #292524">
+    <p style="margin:0 0 8px;font-size:10px;letter-spacing:4px;text-transform:uppercase;color:{brand_color}">{brand_name}</p>
+    <div style="width:32px;height:1px;background:{brand_color}"></div>
+  </td></tr>
+  <tr><td style="padding:40px 52px 28px">
+    <h1 style="margin:0 0 28px;font-size:30px;line-height:1.3;color:#f5f5f4;font-weight:400;font-style:italic">{headline}</h1>
+    <p style="margin:0 0 28px;font-size:15px;line-height:1.8;color:#a8a29e">{intro_paragraph}</p>
+    <p style="margin:0 0 28px;font-size:16px;line-height:1.6;color:#d6d3d1;border-left:2px solid {brand_color};padding-left:16px">{offer_line}</p>
+    <ul style="margin:0 0 28px;padding-left:0;list-style:none;color:#a8a29e;font-size:14px;line-height:2">{bullets_html}</ul>
+    {urgency_html}
+  </td></tr>
+  <tr><td style="padding:0 52px 40px">
+    <a href="{cta_url}" style="display:inline-block;border:1px solid {brand_color};color:{brand_color};text-decoration:none;padding:14px 40px;font-size:13px;letter-spacing:2px;text-transform:uppercase;font-family:Arial,sans-serif">{cta_button}</a>
+  </td></tr>
+  <tr><td style="padding:24px 52px 32px;border-top:1px solid #292524;text-align:center">
+    <p style="margin:0 0 4px;font-size:10px;color:#57534e;letter-spacing:1px">{footer_line}</p>
+    <p style="margin:0;font-size:10px;color:#57534e">
+      <a href="#" style="color:#57534e;text-decoration:underline">Unsubscribe</a>&nbsp;&nbsp;·&nbsp;&nbsp;
+      <a href="#" style="color:#57534e;text-decoration:underline">Privacy</a>
+    </p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>"""
+
+# ── keep _HTML_TEMPLATE as alias so any other code referencing it still works ─
+_HTML_TEMPLATE = _TMPL_DEFAULT
+
+# Map layout_style values → template strings
+_LAYOUT_TEMPLATES: dict[str, str] = {
+    "default":    _TMPL_DEFAULT,
+    "minimal":    _TMPL_MINIMAL,
+    "bold":       _TMPL_BOLD,
+    "newsletter": _TMPL_NEWSLETTER,
+    "playful":    _TMPL_PLAYFUL,
+    "premium":    _TMPL_PREMIUM,
+}
+
+# Keywords that map a style hint word → layout_style name
+_STYLE_KEYWORDS: dict[str, str] = {
+    "minimal":      "minimal",
+    "clean":        "minimal",
+    "simple":       "minimal",
+    "whitespace":   "minimal",
+    "bold":         "bold",
+    "strong":       "bold",
+    "dark":         "bold",
+    "powerful":     "bold",
+    "newsletter":   "newsletter",
+    "digest":       "newsletter",
+    "blog":         "newsletter",
+    "sections":     "newsletter",
+    "playful":      "playful",
+    "fun":          "playful",
+    "friendly":     "playful",
+    "quirky":       "playful",
+    "premium":      "premium",
+    "luxury":       "premium",
+    "elegant":      "premium",
+    "exclusive":    "premium",
+    "sophisticated":"premium",
+    "custom":       "custom",
+    "unique":       "custom",
+    "bespoke":      "custom",
+    "different layout": "custom",
+    "different design": "custom",
+}
 
 
-def _render_email_html(req: CampaignRequest, sections: dict[str, Any]) -> str:
-    """Stitch Gemini content fields into the HTML template."""
+def _detect_layout_style(
+    req: CampaignRequest,
+    company_profile: Optional[dict] = None,
+) -> str:
+    """
+    Infer the best layout_style from request offer text, brand voice,
+    and company_profile design_hints. Returns one of the _LAYOUT_TEMPLATES keys
+    or 'custom'. Falls back to 'default' if nothing matches.
+    """
+    corpus = " ".join(filter(None, [
+        req.objective.offer or "",
+        req.brand.voice_guidelines or "",
+        (company_profile or {}).get("design_hints", ""),
+        (company_profile or {}).get("tone", ""),
+    ])).lower()
+
+    for kw, style in _STYLE_KEYWORDS.items():
+        if kw in corpus:
+            return style
+    return "default"
+
+
+
+def _render_email_html(
+    req: CampaignRequest,
+    sections: dict[str, Any],
+    company_profile: Optional[dict] = None,
+    layout_style: str = "default",
+) -> str:
+    """
+    Mode A — efficiency step: stitch Gemini content fields into a template variant.
+    layout_style selects which visual template to use; falls back to 'default'.
+    """
 
     def _e(s: Any) -> str:
-        """Escape curly braces in user content so .format() doesn't choke."""
         return str(s or "").replace("{", "&#123;").replace("}", "&#125;")
 
     brand_color = (req.brand.design_tokens.primary_color if req.brand.design_tokens else "#0066cc").strip()
-    # Pick white or dark header text based on rough luminance
     try:
         r, g, b = int(brand_color[1:3], 16), int(brand_color[3:5], 16), int(brand_color[5:7], 16)
         luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
@@ -115,14 +369,18 @@ def _render_email_html(req: CampaignRequest, sections: dict[str, Any]) -> str:
     urgency = _e(sections.get("urgency_line") or "").strip()
     urgency_html = (
         f'<p style="margin:0 0 20px;font-size:14px;color:#dc2626;font-weight:600">{urgency}</p>'
-        if urgency
-        else ""
+        if urgency else ""
     )
 
-    cta_url = "#"
+    cta_url = (
+        (company_profile or {}).get("website")
+        or getattr(getattr(req, "objective", None), "cta_url", None)
+        or "#"
+    )
 
+    template = _LAYOUT_TEMPLATES.get(layout_style) or _TMPL_DEFAULT
     subject = sections.get("subject", "")
-    return _HTML_TEMPLATE.format(
+    return template.format(
         lang=_e(req.objective.language or "en"),
         subject=_e(subject),
         preheader=_e(sections.get("preheader", "")),
@@ -135,9 +393,27 @@ def _render_email_html(req: CampaignRequest, sections: dict[str, Any]) -> str:
         bullets_html=bullets_html,
         urgency_html=urgency_html,
         cta_url=cta_url,
-        cta_button=_e(sections.get("cta_button", "Shop Now")),
+        cta_button=_e(sections.get("cta_button", "Learn More")),
         footer_line=_e(sections.get("footer_line", "")),
     )
+
+
+def _validate_custom_html(html: str, cta_url: str) -> list[str]:
+    """
+    Mode B validation. Returns a list of failure reasons (empty = OK).
+    Checks: contains <html>/<body>, contains CTA link, no <script>.
+    """
+    errors: list[str] = []
+    lower = html.lower()
+    if "<html" not in lower:
+        errors.append("missing <html> tag")
+    if "</html>" not in lower:
+        errors.append("missing </html> tag")
+    if "<script" in lower:
+        errors.append("contains <script> — blocked for email safety")
+    if cta_url and cta_url != "#" and cta_url not in html:
+        errors.append(f"CTA URL {cta_url!r} not found in HTML")
+    return errors
 
 
 def _phase_rapid_batch(
@@ -146,25 +422,93 @@ def _phase_rapid_batch(
 ) -> list[EmailAsset]:
     """
     Fast path: single Gemini call that replaces phases 2-6.
-    Returns a list of EmailAsset objects with pre-rendered HTML.
+
+    Mode A (default, fast): Gemini returns layout_style + content fields;
+              Python picks a matching HTML template variant and stitches HTML.
+    Mode B (custom):  Only when layout_style == 'custom'. Gemini also returns
+              html_content; Python validates it and falls back to Mode A on failure.
+
+    Total Gemini calls: 1.
     """
+    # ── Step A: load company profile ──────────────────────────────────────────
+    t_csv = time.perf_counter()
+    company_profile = load_company_profile(
+        company_identifier=getattr(getattr(req, "objective", None), "company_domain", None)
+    )
+    csv_ms = _ms(t_csv)
+    logger.info("TIMING company_profile_load=%.1fms profile_present=%s", csv_ms, company_profile is not None)
+
+    # Detect preferred layout style from request + profile (pre-inferred default).
+    # Gemini may override per-email via the layout_style field in its response.
+    default_layout = _detect_layout_style(req, company_profile)
+    logger.info("Layout style inferred from request: %s", default_layout)
+
+    # ── Step B: single Gemini call ────────────────────────────────────────────
+    t_gemini = time.perf_counter()
     result = client.generate_text(
-        prompt=prompting.build_rapid_batch_prompt(req),
+        prompt=prompting.build_rapid_batch_prompt(
+            req,
+            company_profile=company_profile,
+            default_layout=default_layout,
+        ),
         system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
         json_schema=prompting.RAPID_BATCH_SCHEMA,
         temperature=0.35,
-        max_output_tokens=4096,
+        # Token budget: 1 500 per email for Mode A copy; +2 000 extra if custom HTML needed.
+        max_output_tokens=min(8192, max(2048, 1500 * req.deliverables.number_of_emails + 2000)),
     )
 
     parsed = result.get("parsed") or {}
     raw_emails: list[dict] = parsed.get("emails") or []
+    gemini_ms = _ms(t_gemini)
+    logger.info("TIMING gemini_call=%.1fms emails_returned=%d", gemini_ms, len(raw_emails))
 
+    # ── Step C: render HTML ───────────────────────────────────────────────────
     assets: list[EmailAsset] = []
+    t_render = time.perf_counter()
     for em in raw_emails:
         secs = em.get("sections") or {}
         subject = (em.get("subject_lines") or [""])[0]
-        secs["subject"] = subject  # pass to HTML renderer
-        html = _render_email_html(req, secs) if req.deliverables.include_html else None
+        secs["subject"] = subject
+
+        cta_url = (
+            (company_profile or {}).get("website")
+            or getattr(getattr(req, "objective", None), "cta_url", None)
+            or "#"
+        )
+
+        # Resolve layout_style: Gemini per-email override > inferred default.
+        em_layout = (em.get("layout_style") or default_layout or "default").lower()
+        if em_layout not in _LAYOUT_TEMPLATES and em_layout != "custom":
+            em_layout = default_layout if default_layout in _LAYOUT_TEMPLATES else "default"
+
+        html: Optional[str] = None
+        if req.deliverables.include_html:
+            if em_layout == "custom":
+                # Mode B: use Gemini-rendered HTML with strict validation.
+                gemini_html = (secs.get("html_content") or "").strip()
+                if gemini_html:
+                    errors = _validate_custom_html(gemini_html, cta_url)
+                    if not errors:
+                        html = gemini_html
+                        logger.info("Mode B HTML accepted for email %s", em.get("email_number"))
+                    else:
+                        logger.warning(
+                            "Mode B HTML failed validation for email %s: %s — falling back to Mode A",
+                            em.get("email_number"), "; ".join(errors),
+                        )
+                else:
+                    logger.warning(
+                        "Mode B requested but html_content missing for email %s — falling back to Mode A",
+                        em.get("email_number"),
+                    )
+                # Fallback to Mode A 'default' template
+                if html is None:
+                    html = _render_email_html(req, secs, company_profile=company_profile, layout_style="default")
+            else:
+                # Mode A: Python template variant.
+                html = _render_email_html(req, secs, company_profile=company_profile, layout_style=em_layout)
+                logger.debug("Mode A layout=%s email=%s", em_layout, em.get("email_number"))
 
         # Validate with existing rule checker
         body_text = "\n".join(
@@ -201,7 +545,14 @@ def _phase_rapid_batch(
             )
         )
 
+    render_ms = _ms(t_render)
+    logger.info(
+        "TIMING csv=%.1fms gemini=%.1fms html_render=%.1fms total_fast_path=%.1fms emails=%d",
+        csv_ms, gemini_ms, render_ms, csv_ms + gemini_ms + render_ms, len(assets),
+    )
     return assets
+
+
 def _extract_html(raw: str) -> str:
     """Strip fences/prose and return the first complete HTML document found."""
     import json as _json

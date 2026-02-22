@@ -10,7 +10,7 @@ Design principles
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from app.models import CampaignRequest
 
@@ -779,11 +779,17 @@ RAPID_BATCH_SCHEMA: dict = {
                     "preview_text_options",
                     "ctas",
                     "send_timing",
+                    "layout_style",
                     "sections",
                 ],
                 "properties": {
                     "email_number": {"type": "integer"},
                     "email_name": {"type": "string"},
+                    "layout_style": {
+                        "type": "string",
+                        "enum": ["default", "minimal", "bold", "newsletter", "playful", "premium", "custom"],
+                        "description": "Visual layout variant. Use 'custom' only when explicitly requested for a unique/bespoke design.",
+                    },
                     "subject_lines": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -826,6 +832,9 @@ RAPID_BATCH_SCHEMA: dict = {
                             "cta_button": {"type": "string"},
                             "urgency_line": {"type": "string"},
                             "footer_line": {"type": "string"},
+                            # Mode B only: set when layout_style == "custom".
+                            # Must be a complete HTML document, inline CSS, max-width 600px.
+                            "html_content": {"type": "string"},
                         },
                     },
                 },
@@ -835,10 +844,22 @@ RAPID_BATCH_SCHEMA: dict = {
 }
 
 
-def build_rapid_batch_prompt(req: CampaignRequest) -> str:
+def build_rapid_batch_prompt(
+    req: CampaignRequest,
+    *,
+    company_profile: Optional[dict] = None,
+    default_layout: str = "default",
+) -> str:
     """
     Single-call prompt that replaces phases 2-6.
-    Gemini returns structured content fields; Python stitches them into HTML.
+
+    Mode A (all layout_style values except 'custom'):
+      Gemini returns content fields. Python picks the matching HTML template
+      variant and stitches HTML. Fast, safe, always works.
+
+    Mode B (layout_style == 'custom'):
+      Gemini ALSO returns sections.html_content — a full HTML email.
+      Python validates it and falls back to Mode A on failure.
     """
     brand = req.brand
     obj = req.objective
@@ -853,6 +874,58 @@ def build_rapid_batch_prompt(req: CampaignRequest) -> str:
     n_emails = del_req.number_of_emails
     voice = brand.voice_guidelines or "professional, warm, conversational"
     brand_color = brand.design_tokens.primary_color if brand.design_tokens else "#0066cc"
+
+    # -- Company personalisation block (only added when CRM data is available) --
+    company_block = ""
+    if company_profile:
+        lines: list[str] = []
+        if company_profile.get("company_name"):
+            lines.append(f"  Company name : {company_profile['company_name']}")
+        if company_profile.get("website"):
+            lines.append(f"  Website      : {company_profile['website']}")
+        if company_profile.get("industry"):
+            lines.append(f"  Industry     : {company_profile['industry']}")
+        if company_profile.get("location"):
+            lines.append(f"  Location     : {company_profile['location']}")
+        if company_profile.get("description"):
+            lines.append(f"  About        : {company_profile['description']}")
+        if company_profile.get("key_offer"):
+            lines.append(f"  Key offer    : {company_profile['key_offer']}")
+        if lines:
+            company_block = (
+                "\nCOMPANY PROFILE (from CRM - use these facts naturally in the copy)\n"
+                "================================================================\n"
+                + "\n".join(lines)
+                + "\n\nPersonalisation rules:\n"
+                "- Use the company name naturally in the copy.\n"
+                "- Reference the industry or offer where relevant.\n"
+                "- Do NOT invent facts not listed above.\n"
+                "- Do NOT put raw URLs in headline or bullets."
+            )
+
+    # -- Layout style block ----------------------------------------------------
+    layout_options = "default, minimal, bold, newsletter, playful, premium, custom"
+    layout_block = (
+        "\nLAYOUT STYLE\n"
+        "============\n"
+        f"Suggested layout (from brand/company profile): {default_layout}\n"
+        "Available values: " + layout_options + "\n"
+        "\n"
+        "Guidelines:\n"
+        "- default    : standard template with color header bar and body bullets.\n"
+        "- minimal    : lots of whitespace, serif typography, outline-only CTA.\n"
+        "- bold       : dark background, oversized headline, high-contrast CTA.\n"
+        "- newsletter : distinct section blocks, dividers, labeled highlights.\n"
+        "- playful    : pastel bg, rounded corners, informal friendly copy.\n"
+        "- premium    : dark elegant header, narrow layout, understated CTA.\n"
+        "- custom     : ONLY use if the request explicitly asks for a unique or\n"
+        "               bespoke layout. You must ALSO populate sections.html_content\n"
+        "               with a complete HTML document (inline CSS, max-width 600px,\n"
+        "               exactly 1 CTA button whose href is the company website).\n"
+        "\n"
+        "Each email in the batch can choose its OWN layout_style.\n"
+        "Set the top-level \"layout_style\" field per email object."
+    )
 
     return f"""\
 You are a senior email marketing strategist and award-winning copywriter.
@@ -871,6 +944,8 @@ Language:        {obj.language or "en"}
 Channels:        {channels}
 Send window:     {send_window}
 Number of emails:{n_emails}
+{company_block}
+{layout_block}
 
 TASK
 ====
@@ -884,6 +959,8 @@ For each email return ALL of the following fields:
 - preview_text_options  2 variants, 80–100 chars each, complementing the subject
 - ctas             1–2 action phrases for the CTA button(s)
 - send_timing      recommended send day/time with a 1-line rationale
+- layout_style     one of: default, minimal, bold, newsletter, playful, premium, custom
+                   (match the brand/offer tone; use 'custom' ONLY when explicitly requested)
 - sections         object with EXACTLY these 8 keys:
     headline          compelling H1, max 10 words, no trailing full stop
     preheader         80–90 chars supplementing the subject line
