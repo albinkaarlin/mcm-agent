@@ -1,18 +1,24 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Sparkles, ArrowRight, Link2, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Sparkles, ArrowRight, Link2, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useHubSpotStore } from "@/lib/hubspot-store";
+import { useBrandStore } from "@/lib/brand-store";
+import { useHubSpotContactsStore } from "@/lib/hubspot-contacts-store";
 import markLogo from "@/assets/mark-logo.png";
 
 export default function Index() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const setConnected = useHubSpotStore((s) => s.setConnected);
+  const { connected, lastSyncedAt, setConnected, setLastSyncedAt } = useHubSpotStore();
+  const populateFromCrm = useBrandStore((s) => s.populateFromCrm);
+  const brandName = useBrandStore((s) => s.brand.brandName);
+  const populateSegments = useHubSpotContactsStore((s) => s.populateSegments);
   const [connecting, setConnecting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // When user comes back from HubSpot (via your backend redirect)
   useEffect(() => {
@@ -22,12 +28,27 @@ export default function Index() {
 
     if (connected === "1") {
       setConnected(true);
-      toast({
-        title: "CRM connected",
-        description: "HubSpot linked successfully. Let's create your first campaign.",
-      });
-      // Go to create page and clear query params
-      navigate("/create", { replace: true });
+      // Fetch CRM data from hubspot server and populate brand store
+      fetch("http://localhost:3000/api/crm-data")
+        .then((r) => r.json())
+        .then((data) => {
+          populateFromCrm(data);
+          populateSegments(data);
+          setLastSyncedAt(data.fetchedAt ?? new Date().toISOString());
+          toast({
+            title: "CRM connected & brand imported",
+            description: "HubSpot data loaded. Review your brand settings.",
+          });
+          navigate("/brand", { replace: true });
+        })
+        .catch(() => {
+          // CRM data fetch failed but auth succeeded — still navigate forward
+          toast({
+            title: "CRM connected",
+            description: "HubSpot linked. Brand data could not be fetched right now.",
+          });
+          navigate("/create", { replace: true });
+        });
     } else if (error) {
       toast({
         variant: "destructive",
@@ -41,8 +62,29 @@ export default function Index() {
 
   const handleConnect = () => {
     setConnecting(true);
-    // Send user to backend to start OAuth
     window.location.href = "http://localhost:3000/auth/hubspot";
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const data = await fetch("http://localhost:3000/api/refresh").then((r) => {
+        if (!r.ok) throw new Error("Refresh failed");
+        return r.json();
+      });
+      populateFromCrm(data);
+      populateSegments(data);
+      setLastSyncedAt(data.fetchedAt ?? new Date().toISOString());
+      toast({ title: "HubSpot synced", description: "Contacts and brand data are up to date." });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Sync failed",
+        description: "Could not refresh HubSpot data. Try reconnecting.",
+      });
+    } finally {
+      setSyncing(false);
+    }
   };
 
   return (
@@ -99,28 +141,97 @@ export default function Index() {
         transition={{ duration: 0.6, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
         className="flex flex-col items-center gap-6"
       >
-        <Button
-          size="lg"
-          className="h-14 px-10 text-base font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md"
-          onClick={handleConnect}
-          disabled={connecting}
-        >
-          {connecting ? (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Connecting to HubSpot…
-            </>
+        <AnimatePresence mode="wait">
+          {connected ? (
+            <motion.div
+              key="connected"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="flex flex-col items-center gap-4"
+            >
+              <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-4 dark:border-emerald-800 dark:bg-emerald-950">
+                <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <div className="text-left">
+                  <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                    HubSpot configured{brandName ? ` · ${brandName}` : ""}
+                  </p>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-0.5">
+                    {lastSyncedAt
+                      ? `Last synced ${new Date(lastSyncedAt).toLocaleString()}`
+                      : "CRM connected and brand data imported"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  size="lg"
+                  className="h-12 px-8 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                  onClick={() => navigate("/campaigns")}
+                >
+                  Go to Campaigns
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="h-12 px-4 text-sm"
+                  onClick={handleSync}
+                  disabled={syncing}
+                >
+                  {syncing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {syncing ? "Syncing…" : "Sync"}
+                </Button>
+                <Button
+                  size="lg"
+                  variant="ghost"
+                  className="h-12 px-4 text-sm text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setConnected(false);
+                    setConnecting(false);
+                  }}
+                >
+                  Reconnect
+                </Button>
+              </div>
+            </motion.div>
           ) : (
-            <>
-              <Link2 className="h-5 w-5" />
-              Connect your CRM via HubSpot
-              <ArrowRight className="h-5 w-5" />
-            </>
+            <motion.div
+              key="disconnected"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="flex flex-col items-center gap-3"
+            >
+              <Button
+                size="lg"
+                className="h-14 px-10 text-base font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md"
+                onClick={handleConnect}
+                disabled={connecting}
+              >
+                {connecting ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Connecting to HubSpot…
+                  </>
+                ) : (
+                  <>
+                    <Link2 className="h-5 w-5" />
+                    Connect your CRM via HubSpot
+                    <ArrowRight className="h-5 w-5" />
+                  </>
+                )}
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                Import contacts and start building campaigns in minutes
+              </p>
+            </motion.div>
           )}
-        </Button>
-        <p className="text-sm text-muted-foreground">
-          Import contacts and start building campaigns in minutes
-        </p>
+        </AnimatePresence>
       </motion.div>
     </div>
   );

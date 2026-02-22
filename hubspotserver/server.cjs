@@ -8,57 +8,62 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-// Backend port (where this server runs)
 const PORT = process.env.PORT || 3000;
-
-// HubSpot app credentials from .env
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
-
-// This MUST match the redirect URL configured in your HubSpot app
 const REDIRECT_URI = `http://localhost:${PORT}/oauth/callback`;
+const SCOPES = 'crm.objects.companies.read crm.objects.contacts.read oauth';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
-// Exakt de scopes som HubSpot kräver
-const SCOPES =
-  "crm.objects.companies.read crm.objects.contacts.read oauth";
+console.log('CLIENT_ID:', CLIENT_ID ? 'loaded ✅' : 'MISSING ❌');
+console.log('CLIENT_SECRET:', CLIENT_SECRET ? 'loaded ✅' : 'MISSING ❌');
 
-// Frontend URL (React dev server)
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:8080";
+// ── In-memory state ──────────────────────────────────────────────────────────
+let latestCrmData = null;
+let latestAccessToken = null;
 
-// Var vi sparar CRM-datan (gemensam fil som Gemini-backenden kan läsa)
-const HUBSPOT_DATA_PATH =
-  process.env.HUBSPOT_DATA_PATH ||
-  path.join(__dirname, "..", "hubspot_data.json");
+// ── Helper: fetch & store CRM data for a given token ─────────────────────────
+async function refreshCrmData(token) {
+  const [contacts, companies] = await Promise.all([
+    fetchContacts(token),
+    fetchCompanies(token),
+  ]);
+  console.log(`Fetched ${contacts.length} contacts, ${companies.length} companies`);
+  latestCrmData = {
+    fetchedAt: new Date().toISOString(),
+    contactsCount: contacts.length,
+    companiesCount: companies.length,
+    contactsCsv: buildContactsCsv(contacts),
+    companiesCsv: buildCompaniesCsv(companies),
+  };
+  return latestCrmData;
+}
 
-console.log("CLIENT_ID:", CLIENT_ID ? "loaded ✅" : "MISSING ❌");
-console.log("CLIENT_SECRET:", CLIENT_SECRET ? "loaded ✅" : "MISSING ❌");
-console.log("REDIRECT_URI:", REDIRECT_URI);
-console.log("FRONTEND_URL:", FRONTEND_URL);
-console.log("SCOPES:", SCOPES);
-console.log("HUBSPOT_DATA_PATH:", HUBSPOT_DATA_PATH);
+// ── CORS for local frontend ────────────────────────────────────────────────
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', FRONTEND_URL);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
-// 1. Start OAuth – your React app redirects the user here
-app.get("/auth/hubspot", (req, res) => {
+// ── 1. Start OAuth ─────────────────────────────────────────────────────────
+app.get('/auth/hubspot', (req, res) => {
   const authUrl =
     "https://app.hubspot.com/oauth/authorize" +
     `?client_id=${encodeURIComponent(CLIENT_ID)}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
     `&scope=${encodeURIComponent(SCOPES)}`;
-
   return res.redirect(authUrl);
 });
 
-// 2. Callback – HubSpot sends the user back here with ?code=...
-app.get("/oauth/callback", async (req, res) => {
+// ── 2. OAuth callback ──────────────────────────────────────────────────────
+app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
-
-  if (!code) {
-    console.error("Missing code from HubSpot");
-    return res.redirect(`${FRONTEND_URL}/?error=missing_code`);
-  }
+  if (!code) return res.redirect(`${FRONTEND_URL}/?error=missing_code`);
 
   try {
-    // Exchange code for access token
     const tokenResponse = await axios.post(
       "https://api.hubapi.com/oauth/v1/token",
       new URLSearchParams({
@@ -66,62 +71,46 @@ app.get("/oauth/callback", async (req, res) => {
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
         redirect_uri: REDIRECT_URI,
-        code: code,
+        code,
       }).toString(),
-      {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      }
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
 
-    const accessToken = tokenResponse.data.access_token;
-    console.log("Got access token ✅");
+    latestAccessToken = tokenResponse.data.access_token;
+    console.log('Got access token ✅');
 
-    // Fetch contacts & companies
-    const [contacts, companies] = await Promise.all([
-      fetchContacts(accessToken),
-      fetchCompanies(accessToken),
-    ]);
+    await refreshCrmData(latestAccessToken);
 
-    console.log("Fetched contacts:", contacts.length);
-    console.log("Fetched companies:", companies.length);
-
-    // Convert to CSV text
-    const contactsCsv = toCsv(contacts, ["firstname", "lastname", "email", "age,", "membership_level", "membership_startdate", "city", "country"]);
-    const companiesCsv = toCsv(companies, ["name", "domain","description"]);
-
-    // Build object to store
-    const dataToStore = {
-      fetchedAt: new Date().toISOString(),
-      contactsCount: contacts.length,
-      companiesCount: companies.length,
-      contactsCsv,
-      companiesCsv,
-    };
-
-    // Write JSON file so Gemini-backend (8000) can read it
-    try {
-      fs.writeFileSync(
-        HUBSPOT_DATA_PATH,
-        JSON.stringify(dataToStore, null, 2),
-        "utf-8"
-      );
-      console.log("Saved HubSpot data to", HUBSPOT_DATA_PATH);
-    } catch (e) {
-      console.error("Failed to write HubSpot data file:", e);
-    }
-
-    // Success – send user back to frontend create page
-    return res.redirect(`${FRONTEND_URL}/create?connected=1`);
+    // Redirect to / so Index.tsx can handle the callback and fetch CRM data
+    return res.redirect(`${FRONTEND_URL}/?connected=1`);
   } catch (error) {
-    console.error(
-      "OAuth error:",
-      error.response?.data || error.message || error
-    );
+    console.error('OAuth error:', error.response?.data || error.message);
     return res.redirect(`${FRONTEND_URL}/?error=oauth_failed`);
   }
 });
 
-// Helper to fetch contacts from HubSpot
+// ── 3. CRM data endpoint – called by frontend after successful auth ─────────
+app.get('/api/crm-data', (req, res) => {
+  if (!latestCrmData) return res.status(404).json({ error: 'No CRM data available yet' });
+  return res.json(latestCrmData);
+});
+
+// ── 4. Refresh – re-fetches CRM data using the stored token ──────────────────
+app.get('/api/refresh', async (req, res) => {
+  if (!latestAccessToken) {
+    return res.status(401).json({ error: 'Not authenticated – please reconnect HubSpot' });
+  }
+  try {
+    const data = await refreshCrmData(latestAccessToken);
+    return res.json(data);
+  } catch (error) {
+    console.error('Refresh error:', error.response?.data || error.message);
+    return res.status(502).json({ error: 'Failed to refresh CRM data' });
+  }
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
 async function fetchContacts(token) {
   const response = await axios.get(
     "https://api.hubapi.com/crm/v3/objects/contacts",
@@ -142,8 +131,8 @@ async function fetchCompanies(token) {
     "https://api.hubapi.com/crm/v3/objects/companies",
     {
       params: {
-        limit: 50,
-        properties: "name,domain,description, domain,hs_logo_url",
+        limit: 100,
+        properties: 'firstname,lastname,email,age,membership_level,membership_startdate,city,country',
       },
       headers: { Authorization: `Bearer ${token}` },
     }
@@ -151,55 +140,46 @@ async function fetchCompanies(token) {
   return response.data.results || [];
 }
 
-// Very dumb CSV generator: array of records + chosen fields -> CSV string
-function toCsv(items, fields) {
-  if (!items || items.length === 0) return "";
-  const header = fields.join(",");
-  const rows = items.map((item) => {
-    const props = item.properties || {};
-    return fields
-      .map((field) =>
-        (props[field] ?? "")
-          .toString()
-          .replace(/"/g, '""') // escape quotes
-      )
-      .map((v) => `"${v}"`)
-      .join(",");
-  });
-  return [header, ...rows].join("\n");
+async function fetchCompanies(token) {
+  const response = await axios.get(
+    'https://api.hubapi.com/crm/v3/objects/companies',
+    {
+      params: {
+        limit: 10,
+        properties: 'name,domain,description,hs_logo_url',
+      },
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  return response.data.results || [];
 }
 
-// Debug endpoint to see that data actually finns
-app.get("/hubspot/debug", (req, res) => {
-  try {
-    if (!fs.existsSync(HUBSPOT_DATA_PATH)) {
-      return res.json({
-        exists: false,
-        message: "No hubspot_data file found yet.",
-      });
-    }
-    const raw = fs.readFileSync(HUBSPOT_DATA_PATH, "utf-8");
-    const data = JSON.parse(raw);
-    res.json({
-      exists: true,
-      fetchedAt: data.fetchedAt,
-      contactsCount: data.contactsCount,
-      companiesCount: data.companiesCount,
-      sampleContactsCsv: data.contactsCsv
-        ?.split("\n")
-        .slice(0, 3)
-        .join("\n"),
-      sampleCompaniesCsv: data.companiesCsv
-        ?.split("\n")
-        .slice(0, 3)
-        .join("\n"),
-    });
-  } catch (e) {
-    console.error("Error reading hubspot data:", e);
-    res.status(500).json({ error: "Failed to read hubspot data file" });
-  }
-});
+function csvEscape(val) {
+  if (val == null) return '""';
+  const s = String(val);
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function buildContactsCsv(contacts) {
+  const headers = 'firstname,lastname,email,age,membership_level,membership_startdate,city,country';
+  const rows = contacts.map((c) => {
+    const p = c.properties || {};
+    return [p.firstname, p.lastname, p.email, p.age, p.membership_level, p.membership_startdate, p.city, p.country]
+      .map(csvEscape)
+      .join(',');
+  });
+  return [headers, ...rows].join('\n');
+}
+
+function buildCompaniesCsv(companies) {
+  const headers = 'name,domain,description,hs_logo_url';
+  const rows = companies.map((c) => {
+    const p = c.properties || {};
+    return [p.name, p.domain, p.description, p.hs_logo_url].map(csvEscape).join(',');
+  });
+  return [headers, ...rows].join('\n');
+}
 
 app.listen(PORT, () => {
-  console.log(`Server körs på http://localhost:${PORT}`);
+  console.log(`HubSpot server running at http://localhost:${PORT}`);
 });

@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { CrmData } from "./crm-parser";
+import { parseCrmData } from "./crm-parser";
 
 export interface BrandDesignTokens {
   autoDesign: boolean;
@@ -41,8 +43,10 @@ export const DEFAULT_BRAND: BrandConfig = {
 
 interface BrandState {
   brand: BrandConfig;
+  importedFromCrm: boolean;
   updateBrand: (updates: Partial<BrandConfig>) => void;
   updateDesignTokens: (updates: Partial<BrandDesignTokens>) => void;
+  populateFromCrm: (data: CrmData) => void;
   reset: () => void;
 }
 
@@ -50,6 +54,7 @@ export const useBrandStore = create<BrandState>()(
   persist(
     (set) => ({
       brand: DEFAULT_BRAND,
+      importedFromCrm: false,
       updateBrand: (updates) =>
         set((state) => ({ brand: { ...state.brand, ...updates } })),
       updateDesignTokens: (updates) =>
@@ -59,7 +64,21 @@ export const useBrandStore = create<BrandState>()(
             designTokens: { ...state.brand.designTokens, ...updates },
           },
         })),
-      reset: () => set({ brand: DEFAULT_BRAND }),
+      populateFromCrm: (data: CrmData) => {
+        const partial = parseCrmData(data);
+        set((state) => ({
+          importedFromCrm: true,
+          brand: {
+            ...state.brand,
+            ...partial,
+            designTokens: {
+              ...state.brand.designTokens,
+              ...(partial.designTokens ?? {}),
+            },
+          },
+        }));
+      },
+      reset: () => set({ brand: DEFAULT_BRAND, importedFromCrm: false }),
     }),
     { name: "mark-brand" }
   )

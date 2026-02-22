@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Save, RotateCcw, Palette, FileText, Shield, CheckCircle2 } from "lucide-react";
+import { Save, RotateCcw, Palette, FileText, Shield, CheckCircle2, Plug, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useBrandStore } from "@/lib/brand-store";
+import { HUBSPOT_DESCRIPTION_TEMPLATE } from "@/lib/crm-parser";
 import { toast } from "@/hooks/use-toast";
 
 // ── Tag input for phrase lists ─────────────────────────────────────────────
@@ -181,7 +182,7 @@ function Field({
 // ── Main page ──────────────────────────────────────────────────────────────
 
 export default function BrandPage() {
-  const { brand, updateBrand, updateDesignTokens, reset } = useBrandStore();
+  const { brand, updateBrand, updateDesignTokens, reset, importedFromCrm } = useBrandStore();
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
@@ -192,6 +193,19 @@ export default function BrandPage() {
 
   return (
     <div className="space-y-8">
+      {/* HubSpot import banner */}
+      {importedFromCrm && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        >
+          <Plug className="h-4 w-4 shrink-0 text-emerald-600" />
+          <span>
+            <strong>Imported from HubSpot CRM.</strong> Review the fields below — anything missing can be added manually or via your HubSpot company description.
+          </span>
+        </motion.div>
+      )}
       {/* Page header */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
@@ -517,6 +531,36 @@ export default function BrandPage() {
                     sign-off before sending.
                   </li>
                 </ul>
+              </div>
+
+              {/* HubSpot description template */}
+              <div className="rounded-lg border border-dashed border-border bg-muted/20 px-5 py-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Plug className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <p className="text-xs font-semibold text-foreground">
+                      HubSpot auto-import template
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={() => {
+                      navigator.clipboard.writeText(HUBSPOT_DESCRIPTION_TEMPLATE);
+                      toast({ title: "Copied", description: "Paste into your HubSpot company Description field." });
+                    }}
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Paste this into your HubSpot company <strong>Description</strong> field and fill in your values. Mark will parse it automatically on the next CRM sync.
+                </p>
+                <pre className="text-[11px] text-muted-foreground bg-background rounded-md p-3 overflow-x-auto border border-border leading-relaxed">
+                  {HUBSPOT_DESCRIPTION_TEMPLATE}
+                </pre>
               </div>
             </Section>
           </motion.div>

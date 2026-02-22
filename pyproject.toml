@@ -13,6 +13,7 @@ dependencies = [
     "google-genai>=1.64.0",
     "tenacity>=9.0.0",
     "python-dotenv>=1.0.1",
+    "sendgrid>=6.11.0",
 ]
 
 [project.optional-dependencies]
