@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
+import Index from "@/pages/Index";
 import CreatePage from "@/pages/CreatePage";
 import ReviewPage from "@/pages/ReviewPage";
 import CampaignsPage from "@/pages/CampaignsPage";
@@ -21,9 +22,10 @@ const App = () => (
       <BrowserRouter>
         <AppLayout>
           <Routes>
-            <Route path="/" element={<Navigate to="/campaigns" replace />} />
+            <Route path="/" element={<Navigate to="/create" replace />} />
             <Route path="/campaigns" element={<CampaignsPage />} />
             <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
+            <Route path="/" element={<Index />} />
             <Route path="/create" element={<CreatePage />} />
             <Route path="/review" element={<ReviewPage />} />
             <Route path="/brand" element={<BrandPage />} />
