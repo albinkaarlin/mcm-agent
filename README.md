@@ -1,4 +1,4 @@
-# 🚀 Mark – Multichannel Marketing AI Agent
+# <img src="./mark logo.png"/> Mark – Multichannel Marketing AI Agent
 
 <p align="center">
   <img src="./markhomepage.png" alt="Mark Homepage" width="100%" />
