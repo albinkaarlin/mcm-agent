@@ -136,10 +136,10 @@ README.md
 
 ## 👥 Authors
 
-- **[Albin Kårlin]**(https://www.linkedin.com/in/albin-k%C3%A5rlin-48b089332/)
-- **[Anton Holmberg]**(https://www.linkedin.com/in/anton-holmberg-7b78b4248/)
-- **[Malcolm Siljehag Alencar]**(https://www.linkedin.com/in/malcolmalencar/)
-- **[Edvin Gunnarsson]**(https://www.linkedin.com/in/edvin-gunnarsson-4698b521a/)
+- [Albin Kårlin](https://www.linkedin.com/in/albin-k%C3%A5rlin-48b089332/)
+- [Anton Holmberg](https://www.linkedin.com/in/anton-holmberg-7b78b4248/)
+- [Malcolm Siljehag Alencar](https://www.linkedin.com/in/malcolmalencar/)
+- [Edvin Gunnarsson](https://www.linkedin.com/in/edvin-gunnarsson-4698b521a/)
 
 ---
 
