@@ -39,6 +39,171 @@ def _ms(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
+# ── Minimal responsive HTML email template ───────────────────────────────────
+# Used by the fast path: Gemini fills content fields; Python stitches the HTML.
+
+_HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{subject}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,Helvetica,sans-serif">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;color:#f4f4f5">{preheader}&nbsp;</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f4f5">
+  <tr><td align="center" style="padding:24px 12px">
+    <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0"
+           style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
+      <!-- Header -->
+      <tr><td style="background:{brand_color};padding:28px 40px;text-align:center">
+        <span style="font-size:22px;font-weight:700;color:{header_text_color}">{brand_name}</span>
+      </td></tr>
+      <!-- Body -->
+      <tr><td style="padding:40px 40px 24px">
+        <h1 style="margin:0 0 20px;font-size:28px;line-height:1.3;color:#111827">{headline}</h1>
+        <p style="margin:0 0 20px;font-size:16px;line-height:1.7;color:#374151">{intro_paragraph}</p>
+        <div style="background:#f9fafb;border-left:4px solid {brand_color};padding:14px 18px;margin:0 0 20px;border-radius:0 6px 6px 0">
+          <strong style="font-size:17px;color:#111827">{offer_line}</strong>
+        </div>
+        <ul style="margin:0 0 24px;padding-left:22px;color:#374151;font-size:16px;line-height:2">
+          {bullets_html}
+        </ul>
+        {urgency_html}
+      </td></tr>
+      <!-- CTA -->
+      <tr><td style="padding:0 40px 36px;text-align:center">
+        <a href="{cta_url}"
+           style="display:inline-block;background:{brand_color};color:#ffffff;text-decoration:none;padding:16px 44px;border-radius:6px;font-size:16px;font-weight:700"
+        >{cta_button}</a>
+      </td></tr>
+      <!-- Footer -->
+      <tr><td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb">
+        <p style="margin:0 0 6px;font-size:12px;color:#9ca3af">{footer_line}</p>
+        <p style="margin:0;font-size:11px;color:#9ca3af">
+          <a href="#" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a>&nbsp;|&nbsp;
+          <a href="#" style="color:#9ca3af;text-decoration:underline">Privacy Policy</a>
+        </p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>"""
+
+
+def _render_email_html(req: CampaignRequest, sections: dict[str, Any]) -> str:
+    """Stitch Gemini content fields into the HTML template."""
+
+    def _e(s: Any) -> str:
+        """Escape curly braces in user content so .format() doesn't choke."""
+        return str(s or "").replace("{", "&#123;").replace("}", "&#125;")
+
+    brand_color = (req.brand.design_tokens.primary_color if req.brand.design_tokens else "#0066cc").strip()
+    # Pick white or dark header text based on rough luminance
+    try:
+        r, g, b = int(brand_color[1:3], 16), int(brand_color[3:5], 16), int(brand_color[5:7], 16)
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        header_text_color = "#ffffff" if luminance < 0.55 else "#111827"
+    except Exception:
+        header_text_color = "#ffffff"
+
+    bullets: list[str] = sections.get("body_bullets") or []
+    bullets_html = "".join(f"<li>{_e(b)}</li>" for b in bullets)
+
+    urgency = _e(sections.get("urgency_line") or "").strip()
+    urgency_html = (
+        f'<p style="margin:0 0 20px;font-size:14px;color:#dc2626;font-weight:600">{urgency}</p>'
+        if urgency
+        else ""
+    )
+
+    cta_url = "#"
+
+    subject = sections.get("subject", "")
+    return _HTML_TEMPLATE.format(
+        lang=_e(req.objective.language or "en"),
+        subject=_e(subject),
+        preheader=_e(sections.get("preheader", "")),
+        brand_color=brand_color,
+        header_text_color=header_text_color,
+        brand_name=_e(req.brand.brand_name),
+        headline=_e(sections.get("headline", "")),
+        intro_paragraph=_e(sections.get("intro_paragraph", "")),
+        offer_line=_e(sections.get("offer_line", "")),
+        bullets_html=bullets_html,
+        urgency_html=urgency_html,
+        cta_url=cta_url,
+        cta_button=_e(sections.get("cta_button", "Shop Now")),
+        footer_line=_e(sections.get("footer_line", "")),
+    )
+
+
+def _phase_rapid_batch(
+    req: CampaignRequest,
+    client: GeminiClient,
+) -> list[EmailAsset]:
+    """
+    Fast path: single Gemini call that replaces phases 2-6.
+    Returns a list of EmailAsset objects with pre-rendered HTML.
+    """
+    result = client.generate_text(
+        prompt=prompting.build_rapid_batch_prompt(req),
+        system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
+        json_schema=prompting.RAPID_BATCH_SCHEMA,
+        temperature=0.35,
+        max_output_tokens=4096,
+    )
+
+    parsed = result.get("parsed") or {}
+    raw_emails: list[dict] = parsed.get("emails") or []
+
+    assets: list[EmailAsset] = []
+    for em in raw_emails:
+        secs = em.get("sections") or {}
+        subject = (em.get("subject_lines") or [""])[0]
+        secs["subject"] = subject  # pass to HTML renderer
+        html = _render_email_html(req, secs) if req.deliverables.include_html else None
+
+        # Validate with existing rule checker
+        body_text = "\n".join(
+            filter(None, [
+                secs.get("headline", ""),
+                secs.get("intro_paragraph", ""),
+                secs.get("offer_line", ""),
+                *[f"• {b}" for b in (secs.get("body_bullets") or [])],
+                secs.get("urgency_line", ""),
+            ])
+        )
+        rule_result = run_email_rules(
+            req=req,
+            email={
+                "email_number": em.get("email_number", len(assets) + 1),
+                "body_text": body_text,
+                "subject_lines": em.get("subject_lines") or [],
+                "preview_text_options": em.get("preview_text_options") or [],
+            },
+        )
+        a11y_notes = rule_result.issues + rule_result.risk_flags
+
+        assets.append(
+            EmailAsset(
+                email_number=em.get("email_number", len(assets) + 1),
+                email_name=em.get("email_name", f"Email {len(assets)+1}"),
+                subject_lines=em.get("subject_lines") or [subject],
+                preview_text_options=em.get("preview_text_options") or [],
+                body_text=body_text,
+                ctas=em.get("ctas") or [],
+                send_timing=em.get("send_timing", ""),
+                html=html,
+                accessibility_notes=a11y_notes,
+            )
+        )
+
+    return assets
+
+
 # ── External Research Stub Interface ─────────────────────────────────────────-
 # This interface is cleanly designed for future implementation with real web
 # browsing / search tools. Currently returns an empty result.
@@ -434,6 +599,64 @@ def orchestrate_campaign(
             request_id=request_id,
             model_used=client._model,
             tokens_estimate=total_tokens,
+            timings=timings,
+        ),
+    )
+
+
+# ── Fast orchestration entry point (2 Gemini calls total) ────────────────────
+
+
+def orchestrate_campaign_fast(
+    req: CampaignRequest,
+    request_id: str,
+    client: GeminiClient,
+) -> CampaignResponse:
+    """
+    Fast campaign generation: 1 Gemini call replaces phases 2-6.
+
+    Pipeline:
+      Phase 0 – parsing (done in route, before this function)
+      Phase 1 – skipped (caller sets skip_clarify=True after parse)
+      Phase R – rapid batch: research + strategy + execution + HTML in one call
+    Total Gemini calls: 1 (vs 5+2N in the full pipeline for N emails).
+    """
+    timings = PhaseTimings()
+    total_start = time.perf_counter()
+
+    logger.info(
+        "Fast campaign orchestration started",
+        extra={"request_id": request_id, "n_emails": req.deliverables.number_of_emails},
+    )
+
+    t = time.perf_counter()
+    try:
+        assets = _phase_rapid_batch(req, client)
+    except Exception as exc:
+        logger.exception("Rapid batch phase failed", extra={"request_id": request_id})
+        raise ValueError(f"Email generation failed: {exc}") from exc
+    rapid_ms = _ms(t)
+    timings.execution_ms = rapid_ms   # execution + production combined
+    timings.production_ms = 0.0
+    timings.total_ms = _ms(total_start)
+
+    logger.info(
+        "FAST TIMING: rapid_batch=%.0fms total=%.0fms gemini_calls=1 emails=%d",
+        rapid_ms,
+        timings.total_ms,
+        len(assets),
+        extra={"request_id": request_id},
+    )
+
+    return CampaignResponse(
+        status=CampaignStatus.COMPLETED,
+        blueprint=None,
+        assets=assets,
+        critique=None,
+        metadata=ResponseMetadata(
+            request_id=request_id,
+            model_used=client._model,
+            tokens_estimate=0,
             timings=timings,
         ),
     )

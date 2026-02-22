@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Sparkles, Pencil } from "lucide-react";
+import { ArrowRight, Sparkles, Pencil, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useCampaignStore } from "@/lib/campaign-store";
 import { useNavigate } from "react-router-dom";
+import { editEmail } from "@/lib/api";
 import type { GeneratedEmail } from "@/lib/mock-api";
 
 function EmailPreviewCard({
@@ -54,22 +55,55 @@ function EmailPreviewCard({
   );
 }
 
-function EmailEditorModal({
+/** Named export for testing. The default export (ReviewPage) wraps this. */
+export function EmailEditorModal({
   email,
   open,
   onClose,
+  onSaved,
+  defaultTab = "summary",
 }: {
   email: GeneratedEmail | null;
   open: boolean;
   onClose: () => void;
+  /** Called with the email id and new HTML after a successful AI edit. */
+  onSaved: (emailId: string, newHtml: string) => void;
+  /** Which tab to show on open. Defaults to "summary". Pass "edit" in tests. */
+  defaultTab?: "summary" | "edit";
 }) {
   const [editPrompt, setEditPrompt] = useState("");
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  // Local display HTML so the iframe updates immediately after a successful edit,
+  // without waiting for the parent to re-render and re-pass props.
+  const [displayHtml, setDisplayHtml] = useState("");
+
+  // Sync displayHtml whenever a different email is opened.
+  useEffect(() => {
+    if (email) setDisplayHtml(email.htmlContent);
+  }, [email?.id]);
 
   if (!email) return null;
 
-  const handleSubmitEdit = () => {
-    console.log("Edit request for email", email.id, ":", editPrompt);
-    setEditPrompt("");
+  const handleSubmitEdit = async () => {
+    if (!editPrompt.trim()) return;
+    setIsApplying(true);
+    setApplyError(null);
+    try {
+      const newHtml = await editEmail(
+        email.id,
+        displayHtml,       // use current displayed HTML so chained edits work
+        email.subject,
+        editPrompt,
+      );
+      setDisplayHtml(newHtml);   // update iframe immediately
+      onSaved(email.id, newHtml); // persist into Zustand store
+      setEditPrompt("");
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : "Edit failed. Please try again.");
+    } finally {
+      setIsApplying(false);
+    }
   };
 
   return (
@@ -82,7 +116,7 @@ function EmailEditorModal({
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 overflow-auto">
             <iframe
-              srcDoc={email.htmlContent}
+              srcDoc={displayHtml}
               className="h-full w-full"
               sandbox=""
               title="Email preview"
@@ -90,7 +124,7 @@ function EmailEditorModal({
           </div>
 
           <div className="w-[300px] flex-shrink-0 border-l border-border bg-muted/30 flex flex-col overflow-hidden">
-            <Tabs defaultValue="summary" className="flex flex-col h-full">
+            <Tabs defaultValue={defaultTab} className="flex flex-col h-full">
               <div className="px-4 pt-4 pb-2 flex-shrink-0">
                 <TabsList className="w-full">
                   <TabsTrigger value="summary" className="flex-1 gap-1.5 text-xs">
@@ -126,19 +160,29 @@ function EmailEditorModal({
                     Describe the changes you'd like. The AI will regenerate this email based on your instructions.
                   </p>
                   <Textarea
-                    placeholder="e.g. Make the tone more formal, add a discount code section..."
+                    placeholder="Describe the changes you'd like, e.g. make the tone more formal, add a discount code section…"
                     value={editPrompt}
                     onChange={(e) => setEditPrompt(e.target.value)}
                     className="min-h-[140px] flex-1 text-xs"
+                    disabled={isApplying}
                   />
+                  {applyError && (
+                    <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-destructive" />
+                      <p className="text-xs text-destructive">{applyError}</p>
+                    </div>
+                  )}
                   <Button
                     size="sm"
                     onClick={handleSubmitEdit}
-                    disabled={!editPrompt.trim()}
+                    disabled={!editPrompt.trim() || isApplying}
                     className="w-full"
                   >
-                    <Sparkles className="h-3.5 w-3.5 mr-1" />
-                    Apply Changes
+                    {isApplying ? (
+                      <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Applying…</>
+                    ) : (
+                      <><Sparkles className="h-3.5 w-3.5 mr-1" />Apply Changes</>
+                    )}
                   </Button>
                 </div>
               </TabsContent>
@@ -152,8 +196,18 @@ function EmailEditorModal({
 
 export default function ReviewPage() {
   const navigate = useNavigate();
-  const { generatedEmails, setStep } = useCampaignStore();
+  const { generatedEmails, setStep, updateEmailHtml } = useCampaignStore();
   const [selectedEmail, setSelectedEmail] = useState<GeneratedEmail | null>(null);
+
+  const handleEmailSaved = (emailId: string, newHtml: string) => {
+    // 1. Persist into Zustand so SendPage uses the edited HTML.
+    updateEmailHtml(emailId, newHtml);
+    // 2. Update the modal's email snapshot so the next edit starts from the new HTML.
+    setSelectedEmail((prev) =>
+      prev && prev.id === emailId ? { ...prev, htmlContent: newHtml } : prev
+    );
+    // 3. The preview cards re-render from Zustand thanks to `generatedEmails` binding.
+  };
 
   if (generatedEmails.length === 0) {
     navigate("/");
@@ -212,6 +266,7 @@ export default function ReviewPage() {
         email={selectedEmail}
         open={!!selectedEmail}
         onClose={() => setSelectedEmail(null)}
+        onSaved={handleEmailSaved}
       />
     </div>
   );

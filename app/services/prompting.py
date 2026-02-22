@@ -648,6 +648,147 @@ percentage is mentioned.
 """
 
 
+# ── Rapid batch generation (fast path: replaces phases 2-6) ──────────────────
+
+RAPID_BATCH_SCHEMA: dict = {
+    "type": "object",
+    "required": ["emails"],
+    "properties": {
+        "emails": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "email_number",
+                    "email_name",
+                    "subject_lines",
+                    "preview_text_options",
+                    "ctas",
+                    "send_timing",
+                    "sections",
+                ],
+                "properties": {
+                    "email_number": {"type": "integer"},
+                    "email_name": {"type": "string"},
+                    "subject_lines": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                    },
+                    "preview_text_options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                    },
+                    "ctas": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                    },
+                    "send_timing": {"type": "string"},
+                    "sections": {
+                        "type": "object",
+                        "required": [
+                            "headline",
+                            "preheader",
+                            "intro_paragraph",
+                            "offer_line",
+                            "body_bullets",
+                            "cta_button",
+                            "urgency_line",
+                            "footer_line",
+                        ],
+                        "properties": {
+                            "headline": {"type": "string"},
+                            "preheader": {"type": "string"},
+                            "intro_paragraph": {"type": "string"},
+                            "offer_line": {"type": "string"},
+                            "body_bullets": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "minItems": 2,
+                                "maxItems": 4,
+                            },
+                            "cta_button": {"type": "string"},
+                            "urgency_line": {"type": "string"},
+                            "footer_line": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
+
+
+def build_rapid_batch_prompt(req: CampaignRequest) -> str:
+    """
+    Single-call prompt that replaces phases 2-6.
+    Gemini returns structured content fields; Python stitches them into HTML.
+    """
+    brand = req.brand
+    obj = req.objective
+    del_req = req.deliverables
+    send_window = req.constraints.send_window or "ASAP"
+
+    banned = ", ".join(brand.banned_phrases or []) or "none"
+    channels = ", ".join(ch.value if hasattr(ch, "value") else str(ch) for ch in req.channels) or "email"
+    kpis = ", ".join(
+        [obj.primary_kpi.value] + [k.value for k in (obj.secondary_kpis or [])]
+    )
+    n_emails = del_req.number_of_emails
+    voice = brand.voice_guidelines or "professional, warm, conversational"
+    brand_color = brand.design_tokens.primary_color if brand.design_tokens else "#0066cc"
+
+    return f"""\
+You are a senior email marketing strategist and award-winning copywriter.
+
+CAMPAIGN BRIEF
+==============
+Brand:           {brand.brand_name}
+Voice/Tone:      {voice}
+Banned phrases:  {banned}
+Primary colour:  {brand_color}
+
+Offer:           {obj.offer}
+Target audience: {obj.target_audience}
+KPIs:            {kpis}
+Language:        {obj.language or "en"}
+Channels:        {channels}
+Send window:     {send_window}
+Number of emails:{n_emails}
+
+TASK
+====
+Generate all {n_emails} email(s) for this campaign. Each email must have a distinct \
+narrative angle that builds a logical arc (e.g. teaser → main offer → urgency → last-chance).
+
+For each email return ALL of the following fields:
+- email_number     integer, starting at 1
+- email_name       descriptive label, e.g. "Teaser – Day 1"
+- subject_lines    2 A/B variants, 40–60 chars each (emoji allowed if brand-appropriate)
+- preview_text_options  2 variants, 80–100 chars each, complementing the subject
+- ctas             1–2 action phrases for the CTA button(s)
+- send_timing      recommended send day/time with a 1-line rationale
+- sections         object with EXACTLY these 8 keys:
+    headline          compelling H1, max 10 words, no trailing full stop
+    preheader         80–90 chars supplementing the subject line
+    intro_paragraph   2–3 sentence hook addressing reader's pain or aspiration
+    offer_line        the specific offer stated concisely and compellingly
+    body_bullets      2–4 benefit bullets, each max 12 words, start with a verb
+    cta_button        button label, max 5 words, action-oriented
+    urgency_line      1-sentence deadline/scarcity (use empty string "" if not applicable)
+    footer_line       1-sentence friendly company sign-off / legal note
+
+LANGUAGE RULES
+==============
+- Write ALL copy in: {obj.language or "en"}
+- Follow brand voice strictly: {voice}
+- Never use banned phrases: {banned}
+- Label any assumptions in offer_line as [Assumption: ...]
+"""
+
+
 # ── Email Edit Prompt (frontend "Apply Changes") ──────────────────────────────
 
 

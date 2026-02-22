@@ -28,7 +28,8 @@ from app.models import (
     ValidationResponse,
 )
 from app.services.gemini_client import GeminiClient, get_gemini_client
-from app.services.orchestrator import orchestrate_campaign
+from app.services.orchestrator import orchestrate_campaign, orchestrate_campaign_fast
+from app.services.cache import campaign_cache
 from app.services import prompting
 from app.services.validators import validate_campaign_request
 
@@ -177,12 +178,18 @@ async def generate_from_prompt(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not parse campaign fields: {exc}") from exc
 
+    # ── Check cache first ─────────────────────────────────────────────────
+    cache_key = campaign_req.model_dump()
+    cached = campaign_cache.get(cache_key)
+    if cached is not None:
+        logger.info("Cache hit", extra={"request_id": request_id})
+        return cached
+
     try:
-        campaign_resp = orchestrate_campaign(
+        campaign_resp = orchestrate_campaign_fast(
             req=campaign_req,
             request_id=request_id,
             client=client,
-            skip_clarify=payload.force_proceed,
         )
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -202,7 +209,9 @@ async def generate_from_prompt(
             questions=questions,
         )
 
-    return _map_to_simple_response(campaign_req, campaign_resp, request_id)
+    result = _map_to_simple_response(campaign_req, campaign_resp, request_id)
+    campaign_cache.set(cache_key, result)
+    return result
 
 
 @router.post(
