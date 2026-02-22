@@ -24,26 +24,6 @@ in minutes.
 
 ---
 
-# ⚙️ How It Works
-
-Mark runs a structured six-phase AI pipeline powered by Google Gemini:
-
-1. **Clarify** – Understand campaign goal & constraints  
-2. **Research** – Analyze audience & positioning  
-3. **Strategy** – Define angle, segmentation & tone  
-4. **Execution** – Draft campaign structure  
-5. **Production** – Generate full email copy  
-6. **Critique** – Self-review & optimization  
-
-This ensures:
-
-- 🎯 Strategic alignment  
-- 👥 Audience relevance  
-- 📈 Conversion focus  
-- 🔍 Built-in quality control  
-
----
-
 # 🔗 CRM Integration
 
 Mark is designed to integrate with CRM systems to:
@@ -63,6 +43,8 @@ This allows corporates to operationalize AI marketing directly on their own data
 ## Backend
 - **FastAPI**
 - **Python**
+- **node.js**
+- **HubSpot API**
 - **Google Gemini API**
 - **uv** (dependency management)
 
@@ -136,49 +118,6 @@ http://localhost:8000/docs
 
 ---
 
-# 📤 Generate a Campaign
-
-```bash
-curl -X POST http://localhost:8000/v1/campaigns/generate \
-  -H 'Content-Type: application/json' \
-  -d @examples/christmas_campaign.json | jq .
-```
-
----
-
-# ✅ Validate a Request (No LLM Call)
-
-```bash
-curl -X POST http://localhost:8000/v1/campaigns/validate \
-  -H 'Content-Type: application/json' \
-  -d @examples/christmas_campaign.json | jq .
-```
-
----
-
-# 🧪 Testing
-
-### Unit + Integration (Mocked)
-
-```bash
-make test
-```
-
-No API key required.
-
-### Live End-to-End (Real Gemini)
-
-```bash
-make test-live
-```
-
-Results saved to:
-
-```
-outputs/integration_result.json
-```
-
----
 
 # 📂 Project Structure
 
@@ -193,32 +132,14 @@ README.md
 
 ---
 
-# 🏁 Built During HackEurope 2026
-
-Mark was developed during the **HackEurope 2026 Hackathon**.
+# 🏁 Built During HackEurope Stockholm 2026
 
 ## 👥 Authors
 
-- **Albin Kårlin**
-- **Anton Holmberg**
-- **Malcolm Alencar**
-- **Edvin Gunnarsson**
-
----
-
-# 💡 Vision
-
-Marketing today is fragmented across platforms, tools, and teams.
-
-Mark unifies:
-
-- CRM data  
-- AI reasoning  
-- Campaign strategy  
-- Copy production  
-- Optimization  
-
-Into one intelligent marketing agent.
+- **[Albin Kårlin]**(https://www.linkedin.com/in/albin-k%C3%A5rlin-48b089332/)
+- **[Anton Holmberg]**(https://www.linkedin.com/in/anton-holmberg-7b78b4248/)
+- **[Malcolm Siljehag Alencar]**(https://www.linkedin.com/in/malcolmalencar/)
+- **[Edvin Gunnarsson]**(https://www.linkedin.com/in/edvin-gunnarsson-4698b521a/)
 
 ---
 
