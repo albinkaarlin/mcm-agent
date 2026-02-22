@@ -4,12 +4,14 @@ import { Sparkles, ArrowRight, Link2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { useHubSpotStore } from "@/lib/hubspot-store";
 import markLogo from "@/assets/mark-logo.png";
 
 export default function Index() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+  const setConnected = useHubSpotStore((s) => s.setConnected);
   const [connecting, setConnecting] = useState(false);
 
   // When user comes back from HubSpot (via your backend redirect)
@@ -19,6 +21,7 @@ export default function Index() {
     const error = params.get("error");
 
     if (connected === "1") {
+      setConnected(true);
       toast({
         title: "CRM connected",
         description: "HubSpot linked successfully. Let's create your first campaign.",

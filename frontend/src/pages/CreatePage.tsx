@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, Loader2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,108 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useCampaignStore } from "@/lib/campaign-store";
 import { generateCampaign, type ClarificationQuestion } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
+
+// Line 1: "Make something"
+// Line 2: "re" + gradient("mark") + "able."
+const TW_LINE1   = "Make something";
+const TW_L2_PRE  = "re";
+const TW_MARK    = "mark";
+const TW_SUFFIX  = "able.";
+
+const FAST_UNTIL = TW_LINE1.length; // pause after finishing line 1 (index 14)
+const FULL_TEXT  = TW_LINE1 + TW_L2_PRE + TW_MARK + TW_SUFFIX;
+const TW_TOTAL   = FULL_TEXT.length;
+
+function humanDelay(index: number): number {
+  // "Make something" — fast, snappy keystrokes
+  if (index < FAST_UNTIL) return 18 + Math.random() * 22;
+  // Deliberate pause before jumping to line 2 ("re…")
+  if (index === FAST_UNTIL) return 520 + Math.random() * 160;
+  const ch = FULL_TEXT[index] ?? "";
+  const prev = FULL_TEXT[index - 1] ?? "";
+  // Slow after spaces / punctuation
+  if (prev === " " || prev === "." || prev === ",") return 90 + Math.random() * 120;
+  // Slow before punctuation
+  if (ch === "." || ch === ",") return 80 + Math.random() * 80;
+  // Occasional micro-pause (≈1 in 9 chars)
+  if (Math.random() < 0.11) return 110 + Math.random() * 90;
+  // Normal variation
+  return 28 + Math.random() * 67;
+}
+
+// Module-level flag: survives tab switches, resets on full page reload
+let twHasPlayed = false;
+
+function useTypewriter(startDelay = 380) {
+  const [count, setCount] = useState(twHasPlayed ? TW_TOTAL : 0);
+  useEffect(() => {
+    if (twHasPlayed) return;
+    let timeout: ReturnType<typeof setTimeout>;
+    const tick = (n: number) => {
+      if (n >= TW_TOTAL) { twHasPlayed = true; return; }
+      const delay = n === 0 ? startDelay : humanDelay(n);
+      timeout = setTimeout(() => {
+        setCount(n + 1);
+        tick(n + 1);
+      }, delay);
+    };
+    tick(0);
+    return () => clearTimeout(timeout);
+  }, [startDelay]);
+  return { count, done: count >= TW_TOTAL };
+}
+
+function TypewriterHeadline() {
+  const { count, done } = useTypewriter();
+
+  // Line 1 segment
+  const line1Visible   = TW_LINE1.slice(0, Math.min(count, TW_LINE1.length));
+
+  // Line 2 segments
+  const l2PreOff       = TW_LINE1.length;
+  const l2PreVisible   = count > l2PreOff
+    ? TW_L2_PRE.slice(0, Math.min(count - l2PreOff, TW_L2_PRE.length))
+    : "";
+  const markOff        = l2PreOff + TW_L2_PRE.length;
+  const markVisible    = count > markOff
+    ? TW_MARK.slice(0, Math.min(count - markOff, TW_MARK.length))
+    : "";
+  const suffixOff      = markOff + TW_MARK.length;
+  const suffixVisible  = count > suffixOff
+    ? TW_SUFFIX.slice(0, count - suffixOff)
+    : "";
+
+  const cursorOnLine1  = count <= TW_LINE1.length;
+
+  const Cursor = () => (
+    <motion.span
+      aria-hidden
+      animate={{ opacity: done ? 0 : [1, 1, 0, 0] }}
+      transition={done
+        ? { duration: 0.3 }
+        : { repeat: Infinity, duration: 0.9, ease: "linear", times: [0, 0.5, 0.5, 1] }
+      }
+      className="inline-block ml-0.5 w-[3px] h-[0.85em] bg-primary align-middle rounded-sm"
+    />
+  );
+
+  return (
+    <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-[3.5rem] text-foreground leading-[1.15]">
+      <span className="block">
+        {line1Visible}
+        {cursorOnLine1 && <Cursor />}
+      </span>
+      <span className="block">
+        {l2PreVisible}
+        {markVisible && <span className="gradient-text">{markVisible}</span>}
+        {suffixVisible}
+        {!cursorOnLine1 && <Cursor />}
+        {/* reserve line height before typing starts */}
+        {!l2PreVisible && !markVisible && !suffixVisible && "\u00A0"}
+      </span>
+    </h1>
+  );
+}
 
 export default function CreatePage() {
   const navigate = useNavigate();
@@ -160,15 +262,12 @@ export default function CreatePage() {
           className="inline-flex items-center gap-2 rounded border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground"
         >
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          AI-Powered Campaign Creation
+          Powered by Mark AI
         </motion.div>
-        <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-[3.5rem] text-foreground leading-[1.1]">
-          Create your next{" "}
-          <span className="gradient-text">marketing campaign</span>
-        </h1>
+        <TypewriterHeadline />
         <p className="mx-auto max-w-lg text-base text-muted-foreground leading-relaxed">
-          Describe your campaign goals, target audience, and preferences. Mark will generate
-          personalized email campaigns tailored to your needs.
+          Describe your brief — audience, offer, tone, and goals. Mark turns it
+          into a polished, ready-to-send email campaign.
         </p>
       </motion.div>
 
