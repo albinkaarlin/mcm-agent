@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCampaignStore } from "@/lib/campaign-store";
 import { generateCampaign, type ClarificationQuestion } from "@/lib/api";
+import { useBrandStore } from "@/lib/brand-store";
 import { useNavigate } from "react-router-dom";
 
 // Line 1: "Make something"
@@ -120,6 +121,7 @@ export default function CreatePage() {
     isGenerating,
     setIsGenerating,
   } = useCampaignStore();
+  const brand = useBrandStore((s) => s.brand);
 
   const [clarificationQuestions, setClarificationQuestions] = useState<ClarificationQuestion[]>([]);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
@@ -141,7 +143,19 @@ export default function CreatePage() {
     setIsGenerating(true);
     console.log("Generating campaign with prompt:", activePrompt);
     try {
-      const response = await generateCampaign({ prompt: activePrompt, force_proceed: forceProceed });
+      const response = await generateCampaign({
+        prompt: activePrompt,
+        force_proceed: forceProceed,
+        // Pass full brand context so backend generates brand-specific copy
+        brand_context: brand.brandName ? {
+          brandName: brand.brandName,
+          voiceGuidelines: brand.voiceGuidelines,
+          bannedPhrases: brand.bannedPhrases,
+          requiredPhrases: brand.requiredPhrases,
+          legalFooter: brand.legalFooter,
+          designTokens: brand.designTokens,
+        } : undefined,
+      });
       console.log("Campaign response:", response);
 
       if (response.status === "needs_clarification" && response.questions?.length) {

@@ -62,7 +62,7 @@ _HTML_TEMPLATE = """\
       </td></tr>
       <!-- Body -->
       <tr><td style="padding:40px 40px 24px">
-        <h1 style="margin:0 0 20px;font-size:28px;line-height:1.3;color:#111827">{headline}</h1>
+        <h1 style="margin:0 0 20px;font-size:28px;line-height:1.3;color:#111827;font-family:{heading_font}">{headline}</h1>
         <p style="margin:0 0 20px;font-size:16px;line-height:1.7;color:#374151">{intro_paragraph}</p>
         <div style="background:#f9fafb;border-left:4px solid {brand_color};padding:14px 18px;margin:0 0 20px;border-radius:0 6px 6px 0">
           <strong style="font-size:17px;color:#111827">{offer_line}</strong>
@@ -100,7 +100,12 @@ def _render_email_html(req: CampaignRequest, sections: dict[str, Any]) -> str:
         """Escape curly braces in user content so .format() doesn't choke."""
         return str(s or "").replace("{", "&#123;").replace("}", "&#125;")
 
-    brand_color = (req.brand.design_tokens.primary_color if req.brand.design_tokens else "#0066cc").strip()
+    dt = req.brand.design_tokens
+    brand_color = (dt.primary_color if dt else "#0066cc").strip()
+    font_body = (dt.font_family_body if dt else "Arial, sans-serif")
+    font_heading = (dt.font_family_heading if dt else "Arial, sans-serif")
+    border_radius = (dt.border_radius if dt else "6px")
+
     # Pick white or dark header text based on rough luminance
     try:
         r, g, b = int(brand_color[1:3], 16), int(brand_color[3:5], 16), int(brand_color[5:7], 16)
@@ -122,7 +127,8 @@ def _render_email_html(req: CampaignRequest, sections: dict[str, Any]) -> str:
     cta_url = "#"
 
     subject = sections.get("subject", "")
-    return _HTML_TEMPLATE.format(
+    # Inject brand fonts and border-radius into the template
+    html = _HTML_TEMPLATE.format(
         lang=_e(req.objective.language or "en"),
         subject=_e(subject),
         preheader=_e(sections.get("preheader", "")),
@@ -130,6 +136,7 @@ def _render_email_html(req: CampaignRequest, sections: dict[str, Any]) -> str:
         header_text_color=header_text_color,
         brand_name=_e(req.brand.brand_name),
         headline=_e(sections.get("headline", "")),
+        heading_font=font_heading,
         intro_paragraph=_e(sections.get("intro_paragraph", "")),
         offer_line=_e(sections.get("offer_line", "")),
         bullets_html=bullets_html,
@@ -138,6 +145,11 @@ def _render_email_html(req: CampaignRequest, sections: dict[str, Any]) -> str:
         cta_button=_e(sections.get("cta_button", "Shop Now")),
         footer_line=_e(sections.get("footer_line", "")),
     )
+    # Post-process: swap default font stack and border-radius with brand values
+    html = html.replace("font-family:Arial,Helvetica,sans-serif", f"font-family:{font_body}")
+    html = html.replace("border-radius:8px", f"border-radius:{border_radius}")
+    html = html.replace("border-radius:6px", f"border-radius:{border_radius}")
+    return html
 
 
 def _phase_rapid_batch(

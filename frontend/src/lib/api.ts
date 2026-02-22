@@ -17,9 +17,28 @@ export interface ClarificationQuestion {
   question: string;
 }
 
+export interface BrandContextPayload {
+  brandName: string;
+  voiceGuidelines: string;
+  bannedPhrases: string[];
+  requiredPhrases: string[];
+  legalFooter: string;
+  designTokens: {
+    autoDesign: boolean;
+    primaryColor: string;
+    secondaryColor: string;
+    accentColor: string;
+    fontFamilyHeading: string;
+    fontFamilyBody: string;
+    borderRadius: string;
+    logoUrl: string;
+  };
+}
+
 export interface CampaignRequest {
   prompt: string;
   force_proceed?: boolean;
+  brand_context?: BrandContextPayload;
 }
 
 export interface CampaignResponse {
@@ -58,7 +77,11 @@ export async function generateCampaign(request: CampaignRequest): Promise<Campai
   const res = await fetch("/v1/campaigns/generate-from-prompt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: request.prompt, force_proceed: request.force_proceed ?? false }),
+    body: JSON.stringify({
+      prompt: request.prompt,
+      force_proceed: request.force_proceed ?? false,
+      brand_context: request.brand_context ?? null,
+    }),
   });
 
   if (!res.ok) {

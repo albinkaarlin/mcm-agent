@@ -18,9 +18,23 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 console.log('CLIENT_ID:', CLIENT_ID ? 'loaded ✅' : 'MISSING ❌');
 console.log('CLIENT_SECRET:', CLIENT_SECRET ? 'loaded ✅' : 'MISSING ❌');
 
-// ── In-memory state ──────────────────────────────────────────────────────────
+// ── Persistence path ─────────────────────────────────────────────────────────
+const HUBSPOT_DATA_PATH =
+  process.env.HUBSPOT_DATA_PATH ||
+  path.join(__dirname, '..', 'hubspot_data.json');
+
+// ── In-memory state (seeded from disk on startup) ────────────────────────────
 let latestCrmData = null;
 let latestAccessToken = null;
+
+try {
+  if (fs.existsSync(HUBSPOT_DATA_PATH)) {
+    latestCrmData = JSON.parse(fs.readFileSync(HUBSPOT_DATA_PATH, 'utf-8'));
+    console.log('Loaded CRM data from disk, fetched at:', latestCrmData.fetchedAt);
+  }
+} catch (e) {
+  console.warn('Could not load hubspot_data.json on startup:', e.message);
+}
 
 // ── Helper: fetch & store CRM data for a given token ─────────────────────────
 async function refreshCrmData(token) {
@@ -36,6 +50,13 @@ async function refreshCrmData(token) {
     contactsCsv: buildContactsCsv(contacts),
     companiesCsv: buildCompaniesCsv(companies),
   };
+  // Persist to disk so data survives server restarts
+  try {
+    fs.writeFileSync(HUBSPOT_DATA_PATH, JSON.stringify(latestCrmData, null, 2), 'utf-8');
+    console.log('Saved CRM data to', HUBSPOT_DATA_PATH);
+  } catch (e) {
+    console.warn('Could not write hubspot_data.json:', e.message);
+  }
   return latestCrmData;
 }
 
@@ -118,21 +139,6 @@ async function fetchContacts(token) {
       params: {
         limit: 50,
         properties: "firstname,lastname,email,age,membership_level,membership_startdate,city,country",
-      },
-      headers: { Authorization: `Bearer ${token}` },
-    }
-  );
-  return response.data.results || [];
-}
-
-// Helper to fetch companies from HubSpot
-async function fetchCompanies(token) {
-  const response = await axios.get(
-    "https://api.hubapi.com/crm/v3/objects/companies",
-    {
-      params: {
-        limit: 100,
-        properties: 'firstname,lastname,email,age,membership_level,membership_startdate,city,country',
       },
       headers: { Authorization: `Bearer ${token}` },
     }

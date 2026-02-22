@@ -16,6 +16,7 @@ from app.models import (
     CampaignRequest,
     CampaignResponse,
     Deliverables,
+    DesignTokens,
     EmailEditRequest,
     EmailEditResponse,
     PrimaryKPI,
@@ -97,22 +98,48 @@ def _extract_html_from_text(raw: str) -> str:
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
-def _build_campaign_request(parsed: dict) -> CampaignRequest:
-    """Reconstruct a CampaignRequest from the parse-phase output dict."""
+def _build_campaign_request(parsed: dict, brand_context: dict | None = None) -> CampaignRequest:
+    """Reconstruct a CampaignRequest from the parse-phase output dict.
+
+    If ``brand_context`` is supplied (from the frontend brand store) its values
+    take precedence over whatever Gemini parsed from the free-form prompt.
+    """
     raw_kpi = parsed.get("primary_kpi", "revenue")
     try:
         kpi = PrimaryKPI(raw_kpi)
     except ValueError:
         kpi = PrimaryKPI.REVENUE
 
+    # ── Brand: frontend store wins over prompt-parsed values ─────────────────
+    bc = brand_context or {}
+    dt = bc.get("designTokens") or {}
+
+    brand_name = bc.get("brandName") or parsed.get("brand_name") or "My Brand"
+    voice = bc.get("voiceGuidelines") or parsed.get("voice_guidelines") or "Professional and friendly."
+    banned = bc.get("bannedPhrases") or parsed.get("banned_phrases") or []
+    required = bc.get("requiredPhrases") or parsed.get("required_phrases") or []
+    legal = bc.get("legalFooter") or parsed.get("legal_footer") or ""
+
+    design_tokens = DesignTokens(
+        auto_design=bool(dt.get("autoDesign", True)),
+        primary_color=dt.get("primaryColor") or "#6366f1",
+        secondary_color=dt.get("secondaryColor") or "#ffffff",
+        accent_color=dt.get("accentColor") or "#f59e0b",
+        font_family_heading=dt.get("fontFamilyHeading") or "Georgia, serif",
+        font_family_body=dt.get("fontFamilyBody") or "Arial, sans-serif",
+        border_radius=dt.get("borderRadius") or "6px",
+        logo_url=dt.get("logoUrl") or None,
+    )
+
     return CampaignRequest(
         campaign_name=parsed.get("campaign_name") or "My Campaign",
         brand=BrandContext(
-            brand_name=parsed.get("brand_name") or "My Brand",
-            voice_guidelines=parsed.get("voice_guidelines") or "Professional and friendly.",
-            banned_phrases=parsed.get("banned_phrases") or [],
-            required_phrases=parsed.get("required_phrases") or [],
-            legal_footer=parsed.get("legal_footer") or "",
+            brand_name=brand_name,
+            voice_guidelines=voice,
+            banned_phrases=banned,
+            required_phrases=required,
+            legal_footer=legal,
+            design_tokens=design_tokens,
         ),
         objective=CampaignObjective(
             primary_kpi=kpi,
@@ -236,7 +263,7 @@ async def generate_from_prompt(
     # ── Build structured request and run pipeline ─────────────────────────────
     campaign_data = parsed.get("campaign") or {}
     try:
-        campaign_req = _build_campaign_request(campaign_data)
+        campaign_req = _build_campaign_request(campaign_data, brand_context=payload.brand_context)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not parse campaign fields: {exc}") from exc
 
