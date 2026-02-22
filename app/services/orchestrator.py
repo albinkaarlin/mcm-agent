@@ -313,7 +313,7 @@ def _phase_production(
             system_instruction=prompting.SHARED_SYSTEM_INSTRUCTION,
             json_schema=prompting.HTML_OUTPUT_SCHEMA,
             temperature=0.2,
-            max_output_tokens=8192,
+            max_output_tokens=32768,
         )
         raw_text = result.get("text", "")
         html_text = (result.get("parsed") or {}).get("email_html") or _extract_html(raw_text)
